@@ -18,6 +18,8 @@ def list_catalogue_objects(
     constellation: Optional[str] = Query(default=None, description="Filter by constellation"),
     min_magnitude: Optional[float] = Query(default=None, description="Minimum magnitude"),
     max_magnitude: Optional[float] = Query(default=None, description="Maximum magnitude"),
+    min_size: Optional[float] = Query(default=None, description="Minimum size in arcminutes"),
+    max_size: Optional[float] = Query(default=None, description="Maximum size in arcminutes"),
     search: Optional[str] = Query(default=None, description="Search by name or catalog number"),
     db: Session = Depends(get_db)
 ):
@@ -43,6 +45,12 @@ def list_catalogue_objects(
 
     if max_magnitude is not None:
         query = query.filter(AstroObject.magnitude <= max_magnitude)
+
+    if min_size is not None:
+        query = query.filter(AstroObject.size_major >= min_size)
+
+    if max_size is not None:
+        query = query.filter(AstroObject.size_major <= max_size)
 
     if search:
         search_term = f"%{search}%"

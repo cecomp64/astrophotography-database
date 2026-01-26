@@ -257,6 +257,8 @@ export const catalogueApi = {
     constellation?: string
     min_magnitude?: number
     max_magnitude?: number
+    min_size?: number
+    max_size?: number
     search?: string
   }) => {
     const response = await apiClient.get<CatalogueObjectsResponse>('/catalogue/objects', { params })

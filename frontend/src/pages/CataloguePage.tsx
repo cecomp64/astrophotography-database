@@ -8,11 +8,15 @@ export default function CataloguePage() {
   const [typeFilter, setTypeFilter] = useState('')
   const [constellationFilter, setConstellationFilter] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [minMagnitude, setMinMagnitude] = useState('')
+  const [maxMagnitude, setMaxMagnitude] = useState('')
+  const [minSize, setMinSize] = useState('')
+  const [maxSize, setMaxSize] = useState('')
   const [page, setPage] = useState(0)
   const pageSize = 50
 
   const { data: catalogueData, isLoading } = useQuery({
-    queryKey: ['catalogue', catalogFilter, typeFilter, constellationFilter, searchQuery, page],
+    queryKey: ['catalogue', catalogFilter, typeFilter, constellationFilter, searchQuery, minMagnitude, maxMagnitude, minSize, maxSize, page],
     queryFn: () =>
       catalogueApi.list({
         skip: page * pageSize,
@@ -21,6 +25,10 @@ export default function CataloguePage() {
         object_type: typeFilter || undefined,
         constellation: constellationFilter || undefined,
         search: searchQuery || undefined,
+        min_magnitude: minMagnitude ? parseFloat(minMagnitude) : undefined,
+        max_magnitude: maxMagnitude ? parseFloat(maxMagnitude) : undefined,
+        min_size: minSize ? parseFloat(minSize) : undefined,
+        max_size: maxSize ? parseFloat(maxSize) : undefined,
       }),
   })
 
@@ -165,6 +173,78 @@ export default function CataloguePage() {
             Search
           </button>
         </form>
+
+        <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-space-600">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-400">Magnitude:</span>
+            <input
+              type="number"
+              step="0.1"
+              value={minMagnitude}
+              onChange={(e) => {
+                setMinMagnitude(e.target.value)
+                setPage(0)
+              }}
+              placeholder="Min"
+              className="input w-20"
+            />
+            <span className="text-gray-500">-</span>
+            <input
+              type="number"
+              step="0.1"
+              value={maxMagnitude}
+              onChange={(e) => {
+                setMaxMagnitude(e.target.value)
+                setPage(0)
+              }}
+              placeholder="Max"
+              className="input w-20"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-400">Size (arcmin):</span>
+            <input
+              type="number"
+              step="0.1"
+              value={minSize}
+              onChange={(e) => {
+                setMinSize(e.target.value)
+                setPage(0)
+              }}
+              placeholder="Min"
+              className="input w-20"
+            />
+            <span className="text-gray-500">-</span>
+            <input
+              type="number"
+              step="0.1"
+              value={maxSize}
+              onChange={(e) => {
+                setMaxSize(e.target.value)
+                setPage(0)
+              }}
+              placeholder="Max"
+              className="input w-20"
+            />
+          </div>
+
+          {(minMagnitude || maxMagnitude || minSize || maxSize) && (
+            <button
+              type="button"
+              onClick={() => {
+                setMinMagnitude('')
+                setMaxMagnitude('')
+                setMinSize('')
+                setMaxSize('')
+                setPage(0)
+              }}
+              className="text-sm text-gray-400 hover:text-white"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
       </div>
 
       {isLoading ? (
@@ -272,7 +352,7 @@ export default function CataloguePage() {
         <div className="card text-center py-12">
           <p className="text-gray-400 mb-4">No catalogue objects found</p>
           <p className="text-sm text-gray-500">
-            {catalogueData?.total === 0 && !searchQuery && !catalogFilter && !typeFilter && !constellationFilter
+            {catalogueData?.total === 0 && !searchQuery && !catalogFilter && !typeFilter && !constellationFilter && !minMagnitude && !maxMagnitude && !minSize && !maxSize
               ? 'Download catalogues from the Indexer page to populate the database'
               : 'Try adjusting your filters or search query'}
           </p>
