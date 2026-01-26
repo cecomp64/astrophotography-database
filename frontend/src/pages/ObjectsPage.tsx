@@ -1,0 +1,85 @@
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { objectsApi } from '../api/client'
+import ObjectCard from '../components/ObjectCard'
+import SearchBar from '../components/SearchBar'
+
+export default function ObjectsPage() {
+  const [typeFilter, setTypeFilter] = useState('')
+  const [constellationFilter, setConstellationFilter] = useState('')
+
+  const { data: objects, isLoading } = useQuery({
+    queryKey: ['objects', typeFilter, constellationFilter],
+    queryFn: () =>
+      objectsApi.list({
+        limit: 100,
+        object_type: typeFilter || undefined,
+        constellation: constellationFilter || undefined,
+      }),
+  })
+
+  const objectTypes = objects
+    ? [...new Set(objects.map((o) => o.object_type).filter(Boolean))]
+    : []
+
+  const constellations = objects
+    ? [...new Set(objects.map((o) => o.constellation).filter(Boolean))]
+    : []
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Astronomical Objects</h1>
+      </div>
+
+      <div className="flex flex-wrap gap-4">
+        <div className="w-64">
+          <SearchBar placeholder="Search objects..." />
+        </div>
+
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="input"
+        >
+          <option value="">All Types</option>
+          {objectTypes.map((type) => (
+            <option key={type} value={type!}>
+              {type}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={constellationFilter}
+          onChange={(e) => setConstellationFilter(e.target.value)}
+          className="input"
+        >
+          <option value="">All Constellations</option>
+          {constellations.map((constellation) => (
+            <option key={constellation} value={constellation!}>
+              {constellation}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {isLoading ? (
+        <div className="text-gray-400">Loading objects...</div>
+      ) : objects && objects.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {objects.map((obj) => (
+            <ObjectCard key={obj.id} object={obj} />
+          ))}
+        </div>
+      ) : (
+        <div className="card text-center py-12">
+          <p className="text-gray-400 mb-4">No objects found</p>
+          <p className="text-sm text-gray-500">
+            Index some FITS files to populate the database
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}

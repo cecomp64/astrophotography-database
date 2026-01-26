@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-space-900 text-gray-100;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.card {
+  @apply bg-space-800 rounded-lg border border-space-600 p-4;
+}
+
+.btn {
+  @apply px-4 py-2 rounded-md font-medium transition-colors;
+}
+
+.btn-primary {
+  @apply bg-blue-600 hover:bg-blue-700 text-white;
+}
+
+.btn-secondary {
+  @apply bg-space-700 hover:bg-space-600 text-gray-200;
+}
+
+.input {
+  @apply bg-space-700 border border-space-600 rounded-md px-3 py-2 text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+}
+
+.table {
+  @apply w-full text-left;
+}
+
+.table th {
+  @apply px-4 py-3 text-xs uppercase tracking-wider text-gray-400 bg-space-800;
+}
+
+.table td {
+  @apply px-4 py-3 border-t border-space-700;
+}
+
+.badge {
+  @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
+}
+
+.badge-blue {
+  @apply bg-blue-900 text-blue-200;
+}
+
+.badge-green {
+  @apply bg-green-900 text-green-200;
+}
+
+.badge-purple {
+  @apply bg-purple-900 text-purple-200;
+}

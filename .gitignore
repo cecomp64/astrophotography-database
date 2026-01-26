@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg
+*.egg-info/
+.eggs/
+
+# Node
+node_modules/
+dist/
+.npm
+.pnp.*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/
+*.fits
+*.fit
+*.fts
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
