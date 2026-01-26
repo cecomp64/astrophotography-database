@@ -13,13 +13,16 @@ class AstroObject(Base):
     dec = Column(Float, nullable=True)  # Declination in degrees
     object_type = Column(String(100), nullable=True)  # galaxy, nebula, cluster, etc.
     magnitude = Column(Float, nullable=True)
+    size_major = Column(Float, nullable=True)  # Major axis in arcminutes
+    size_minor = Column(Float, nullable=True)  # Minor axis in arcminutes
     constellation = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     aliases = relationship("ObjectAlias", back_populates="object", cascade="all, delete-orphan")
-    images = relationship("Image", back_populates="object")
+    images = relationship("Image", back_populates="object")  # Legacy via object_id FK
+    image_objects = relationship("ImageObject", back_populates="object", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_objects_primary_name_trgm", "primary_name", postgresql_using="gin",

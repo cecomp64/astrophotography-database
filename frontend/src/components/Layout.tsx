@@ -9,6 +9,7 @@ const navItems = [
   { path: '/', label: 'Dashboard' },
   { path: '/objects', label: 'Objects' },
   { path: '/images', label: 'Images' },
+  { path: '/catalogue', label: 'Catalogue' },
   { path: '/indexer', label: 'Indexer' },
 ]
 

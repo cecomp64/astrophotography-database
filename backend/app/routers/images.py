@@ -5,10 +5,57 @@ from typing import Optional
 from datetime import datetime
 
 from app.database import get_db
-from app.models import Image, AstroObject
+from app.models import Image, AstroObject, ImageObject
 from app.schemas import ImageResponse, ImageUpdate
+from app.services.fov_matcher import FOVMatcher
 
 router = APIRouter(prefix="/images", tags=["images"])
+
+
+def _image_to_response(img: Image) -> dict:
+    """Convert an Image model to a response dict with FOV and objects."""
+    # Build objects list from associations
+    objects = []
+    for io in img.image_objects:
+        objects.append({
+            "object_id": io.object_id,
+            "object_name": io.object.primary_name if io.object else None,
+            "association_type": io.association_type,
+            "angular_distance": io.angular_distance,
+        })
+
+    return {
+        "id": img.id,
+        "file_path": img.file_path,
+        "file_name": img.file_name,
+        "directory_path": img.directory_path,
+        "date_taken": img.date_taken,
+        "exposure_time": img.exposure_time,
+        "filter_name": img.filter_name,
+        "telescope": img.telescope,
+        "camera": img.camera,
+        "gain": img.gain,
+        "iso": img.iso,
+        "binning": img.binning,
+        # FOV fields
+        "ra": img.ra,
+        "dec": img.dec,
+        "pixel_size_x": img.pixel_size_x,
+        "pixel_size_y": img.pixel_size_y,
+        "image_width": img.image_width,
+        "image_height": img.image_height,
+        "focal_length": img.focal_length,
+        "fov_width": img.fov_width,
+        "fov_height": img.fov_height,
+        # Legacy fields
+        "object_id": img.object_id,
+        "fits_header": img.fits_header,
+        "created_at": img.created_at,
+        "updated_at": img.updated_at,
+        "object_name": img.object.primary_name if img.object else None,
+        # Object associations
+        "objects": objects,
+    }
 
 
 @router.get("", response_model=list[ImageResponse])
@@ -27,7 +74,11 @@ def list_images(
     query = db.query(Image)
 
     if object_id:
-        query = query.filter(Image.object_id == object_id)
+        # Filter by object via either legacy FK or association table
+        query = query.filter(
+            (Image.object_id == object_id) |
+            Image.image_objects.any(ImageObject.object_id == object_id)
+        )
 
     if filter_name:
         query = query.filter(Image.filter_name.ilike(f"%{filter_name}%"))
@@ -48,30 +99,7 @@ def list_images(
 
     images = query.offset(skip).limit(limit).all()
 
-    result = []
-    for img in images:
-        img_dict = {
-            "id": img.id,
-            "file_path": img.file_path,
-            "file_name": img.file_name,
-            "directory_path": img.directory_path,
-            "date_taken": img.date_taken,
-            "exposure_time": img.exposure_time,
-            "filter_name": img.filter_name,
-            "telescope": img.telescope,
-            "camera": img.camera,
-            "gain": img.gain,
-            "iso": img.iso,
-            "binning": img.binning,
-            "object_id": img.object_id,
-            "fits_header": img.fits_header,
-            "created_at": img.created_at,
-            "updated_at": img.updated_at,
-            "object_name": img.object.primary_name if img.object else None,
-        }
-        result.append(img_dict)
-
-    return result
+    return [_image_to_response(img) for img in images]
 
 
 @router.get("/stats")
@@ -117,25 +145,7 @@ def get_image(image_id: int, db: Session = Depends(get_db)):
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    return {
-        "id": img.id,
-        "file_path": img.file_path,
-        "file_name": img.file_name,
-        "directory_path": img.directory_path,
-        "date_taken": img.date_taken,
-        "exposure_time": img.exposure_time,
-        "filter_name": img.filter_name,
-        "telescope": img.telescope,
-        "camera": img.camera,
-        "gain": img.gain,
-        "iso": img.iso,
-        "binning": img.binning,
-        "object_id": img.object_id,
-        "fits_header": img.fits_header,
-        "created_at": img.created_at,
-        "updated_at": img.updated_at,
-        "object_name": img.object.primary_name if img.object else None,
-    }
+    return _image_to_response(img)
 
 
 @router.patch("/{image_id}", response_model=ImageResponse)
@@ -153,25 +163,7 @@ def update_image(image_id: int, img_data: ImageUpdate, db: Session = Depends(get
     db.commit()
     db.refresh(img)
 
-    return {
-        "id": img.id,
-        "file_path": img.file_path,
-        "file_name": img.file_name,
-        "directory_path": img.directory_path,
-        "date_taken": img.date_taken,
-        "exposure_time": img.exposure_time,
-        "filter_name": img.filter_name,
-        "telescope": img.telescope,
-        "camera": img.camera,
-        "gain": img.gain,
-        "iso": img.iso,
-        "binning": img.binning,
-        "object_id": img.object_id,
-        "fits_header": img.fits_header,
-        "created_at": img.created_at,
-        "updated_at": img.updated_at,
-        "object_name": img.object.primary_name if img.object else None,
-    }
+    return _image_to_response(img)
 
 
 @router.delete("/{image_id}", status_code=204)
@@ -187,7 +179,12 @@ def delete_image(image_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{image_id}/link-object/{object_id}", response_model=ImageResponse)
-def link_image_to_object(image_id: int, object_id: int, db: Session = Depends(get_db)):
+def link_image_to_object(
+    image_id: int,
+    object_id: int,
+    association_type: str = Query(default="manual"),
+    db: Session = Depends(get_db)
+):
     """Link an image to an astronomical object."""
     img = db.query(Image).filter(Image.id == image_id).first()
     if not img:
@@ -197,26 +194,108 @@ def link_image_to_object(image_id: int, object_id: int, db: Session = Depends(ge
     if not obj:
         raise HTTPException(status_code=404, detail="Object not found")
 
+    # Update legacy FK
     img.object_id = object_id
+
+    # Create or update ImageObject association
+    existing = db.query(ImageObject).filter(
+        ImageObject.image_id == image_id,
+        ImageObject.object_id == object_id
+    ).first()
+
+    if not existing:
+        image_object = ImageObject(
+            image_id=image_id,
+            object_id=object_id,
+            association_type=association_type,
+            angular_distance=0.0
+        )
+        db.add(image_object)
+
     db.commit()
     db.refresh(img)
 
+    return _image_to_response(img)
+
+
+@router.get("/{image_id}/objects")
+def get_image_objects(image_id: int, db: Session = Depends(get_db)):
+    """Get all objects associated with an image."""
+    img = db.query(Image).filter(Image.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    return [
+        {
+            "object_id": io.object_id,
+            "object_name": io.object.primary_name if io.object else None,
+            "association_type": io.association_type,
+            "angular_distance": io.angular_distance,
+        }
+        for io in img.image_objects
+    ]
+
+
+@router.post("/{image_id}/detect-objects")
+def detect_objects_in_fov(
+    image_id: int,
+    catalogs: list[str] = Query(default=["NGC", "IC", "LDN", "LBN"]),
+    db: Session = Depends(get_db)
+):
+    """Detect and associate catalogue objects within image FOV."""
+    img = db.query(Image).filter(Image.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    if not all([img.ra, img.dec, img.fov_width, img.fov_height]):
+        raise HTTPException(
+            status_code=400,
+            detail="Image missing required FOV data (RA, DEC, FOV dimensions)"
+        )
+
+    matcher = FOVMatcher(db)
+    matches = matcher.match_image_to_objects(img, catalogs)
+
     return {
-        "id": img.id,
-        "file_path": img.file_path,
-        "file_name": img.file_name,
-        "directory_path": img.directory_path,
-        "date_taken": img.date_taken,
-        "exposure_time": img.exposure_time,
-        "filter_name": img.filter_name,
-        "telescope": img.telescope,
-        "camera": img.camera,
-        "gain": img.gain,
-        "iso": img.iso,
-        "binning": img.binning,
-        "object_id": img.object_id,
-        "fits_header": img.fits_header,
-        "created_at": img.created_at,
-        "updated_at": img.updated_at,
-        "object_name": obj.primary_name,
+        "image_id": image_id,
+        "fov": {
+            "ra": img.ra,
+            "dec": img.dec,
+            "width_deg": img.fov_width,
+            "height_deg": img.fov_height
+        },
+        "objects_found": len(matches),
+        "objects": [
+            {
+                "catalog": m["catalogue_object"].catalog,
+                "catalog_number": m["catalogue_object"].catalog_number,
+                "name": m["catalogue_object"].name,
+                "angular_distance_arcmin": m["angular_distance"]
+            }
+            for m in matches
+        ]
     }
+
+
+@router.delete("/{image_id}/objects/{object_id}", status_code=204)
+def remove_object_from_image(image_id: int, object_id: int, db: Session = Depends(get_db)):
+    """Remove an object association from an image."""
+    img = db.query(Image).filter(Image.id == image_id).first()
+    if not img:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    association = db.query(ImageObject).filter(
+        ImageObject.image_id == image_id,
+        ImageObject.object_id == object_id
+    ).first()
+
+    if not association:
+        raise HTTPException(status_code=404, detail="Association not found")
+
+    db.delete(association)
+
+    # Also clear legacy FK if it matches
+    if img.object_id == object_id:
+        img.object_id = None
+
+    db.commit()

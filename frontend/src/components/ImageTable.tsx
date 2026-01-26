@@ -37,8 +37,10 @@ export default function ImageTable({ images }: ImageTableProps) {
           {images.map((image) => (
             <tr key={image.id} className="hover:bg-space-800">
               <td>
-                <div className="font-medium">{image.file_name}</div>
-                <div className="text-xs text-gray-500 truncate max-w-xs">{image.directory_path}</div>
+                <Link to={`/images/${image.id}`} className="block hover:text-blue-400 transition-colors">
+                  <div className="font-medium">{image.file_name}</div>
+                  <div className="text-xs text-gray-500 truncate max-w-xs">{image.directory_path}</div>
+                </Link>
               </td>
               <td>
                 {image.object_id ? (

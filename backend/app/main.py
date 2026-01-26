@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine, Base
-from app.routers import objects_router, images_router, indexer_router
+from app.routers import objects_router, images_router, indexer_router, catalogue_router
 
 # Configure logging
 logging.basicConfig(
@@ -36,6 +36,7 @@ app.add_middleware(
 app.include_router(objects_router)
 app.include_router(images_router)
 app.include_router(indexer_router)
+app.include_router(catalogue_router)
 
 
 @app.get("/")

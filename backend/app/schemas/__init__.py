@@ -12,6 +12,8 @@ from app.schemas.images import (
     ImageCreate,
     ImageUpdate,
     ImageResponse,
+    ImageObjectAssociation,
+    FOVDetectionResult,
 )
 
 __all__ = [
@@ -26,4 +28,6 @@ __all__ = [
     "ImageCreate",
     "ImageUpdate",
     "ImageResponse",
+    "ImageObjectAssociation",
+    "FOVDetectionResult",
 ]

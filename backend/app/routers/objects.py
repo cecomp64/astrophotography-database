@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_, exists
 from typing import Optional
 
 from app.database import get_db
-from app.models import AstroObject, ObjectAlias, Image
+from app.models import AstroObject, ObjectAlias, Image, ImageObject
 from app.schemas import ObjectResponse, ObjectCreate, ObjectUpdate, ObjectAliasCreate
 from app.services.name_resolver import NameResolver
 
@@ -19,8 +19,12 @@ def list_objects(
     constellation: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    """List all astronomical objects with optional filters."""
-    query = db.query(AstroObject)
+    """List all astronomical objects with optional filters. Only includes objects with images."""
+    # Subqueries to check if object has images via either relationship
+    has_legacy_images = exists().where(Image.object_id == AstroObject.id)
+    has_image_objects = exists().where(ImageObject.object_id == AstroObject.id)
+
+    query = db.query(AstroObject).filter(or_(has_legacy_images, has_image_objects))
 
     if object_type:
         query = query.filter(AstroObject.object_type.ilike(f"%{object_type}%"))

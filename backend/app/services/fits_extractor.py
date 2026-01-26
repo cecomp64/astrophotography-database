@@ -24,6 +24,14 @@ class FitsMetadata:
     ra: Optional[float] = None
     dec: Optional[float] = None
     fits_header: Optional[dict[str, Any]] = None
+    # FOV-related fields
+    pixel_size_x: Optional[float] = None  # microns
+    pixel_size_y: Optional[float] = None  # microns
+    image_width: Optional[int] = None  # pixels
+    image_height: Optional[int] = None  # pixels
+    focal_length: Optional[float] = None  # mm
+    fov_width: Optional[float] = None  # degrees
+    fov_height: Optional[float] = None  # degrees
 
 
 class FitsExtractor:
@@ -39,6 +47,12 @@ class FitsExtractor:
     OBJECT_KEYWORDS = ["OBJECT", "OBJNAME", "TARGET", "TARGNAME"]
     RA_KEYWORDS = ["RA", "OBJCTRA", "CRVAL1"]
     DEC_KEYWORDS = ["DEC", "OBJCTDEC", "CRVAL2"]
+    # FOV-related keywords
+    PIXEL_SIZE_X_KEYWORDS = ["XPIXSZ", "PIXSIZE1", "PIXELX"]
+    PIXEL_SIZE_Y_KEYWORDS = ["YPIXSZ", "PIXSIZE2", "PIXELY"]
+    IMAGE_WIDTH_KEYWORDS = ["NAXIS1", "IMAGEW"]
+    IMAGE_HEIGHT_KEYWORDS = ["NAXIS2", "IMAGEH"]
+    FOCAL_LENGTH_KEYWORDS = ["FOCALLEN", "FOCAL", "FL"]
 
     # Patterns for extracting object names from filenames
     FILENAME_PATTERNS = [
@@ -55,6 +69,7 @@ class FitsExtractor:
     ]
 
     def extract(self, file_path: str | Path) -> FitsMetadata:
+        import math
         file_path = Path(file_path)
 
         metadata = FitsMetadata(
@@ -66,6 +81,7 @@ class FitsExtractor:
         try:
             with fits.open(file_path) as hdul:
                 header = hdul[0].header
+                data = hdul[0].data
 
                 # Extract all metadata from header
                 metadata.date_taken = self._extract_date(header)
@@ -77,8 +93,41 @@ class FitsExtractor:
                 metadata.iso = self._extract_int(header, self.ISO_KEYWORDS)
                 metadata.binning = self._extract_binning(header)
                 metadata.object_name = self._extract_string(header, self.OBJECT_KEYWORDS)
-                metadata.ra = self._extract_float(header, self.RA_KEYWORDS)
-                metadata.dec = self._extract_float(header, self.DEC_KEYWORDS)
+                metadata.ra = self._extract_ra(header)
+                metadata.dec = self._extract_dec(header)
+
+                # Extract FOV-related fields
+                metadata.pixel_size_x = self._extract_float(header, self.PIXEL_SIZE_X_KEYWORDS)
+                metadata.pixel_size_y = self._extract_float(header, self.PIXEL_SIZE_Y_KEYWORDS)
+                metadata.focal_length = self._extract_float(header, self.FOCAL_LENGTH_KEYWORDS)
+
+                # Extract image dimensions from header first
+                metadata.image_width = self._extract_int(header, self.IMAGE_WIDTH_KEYWORDS)
+                metadata.image_height = self._extract_int(header, self.IMAGE_HEIGHT_KEYWORDS)
+
+                # Fallback to data.shape if dimensions not in header
+                if data is not None and (metadata.image_width is None or metadata.image_height is None):
+                    shape = data.shape
+                    if len(shape) >= 2:
+                        # FITS data is stored as [height, width] or [channels, height, width]
+                        if len(shape) == 2:
+                            metadata.image_height = shape[0]
+                            metadata.image_width = shape[1]
+                        elif len(shape) >= 3:
+                            metadata.image_height = shape[-2]
+                            metadata.image_width = shape[-1]
+
+                # Calculate FOV if we have the required data
+                fov_width, fov_height = self._calculate_fov(
+                    metadata.pixel_size_x,
+                    metadata.pixel_size_y,
+                    metadata.image_width,
+                    metadata.image_height,
+                    metadata.focal_length,
+                    metadata.binning
+                )
+                metadata.fov_width = fov_width
+                metadata.fov_height = fov_height
 
                 # Store relevant header keys as dict
                 metadata.fits_header = self._header_to_dict(header)
@@ -95,6 +144,131 @@ class FitsExtractor:
             metadata.object_name = self._extract_object_from_path(file_path)
 
         return metadata
+
+    def _calculate_fov(
+        self,
+        pixel_size_x: Optional[float],
+        pixel_size_y: Optional[float],
+        image_width: Optional[int],
+        image_height: Optional[int],
+        focal_length: Optional[float],
+        binning: Optional[str]
+    ) -> tuple[Optional[float], Optional[float]]:
+        """
+        Calculate FOV in degrees from sensor and optics parameters.
+
+        Formula: FOV = 2 * arctan(sensor_size_mm / (2 * focal_length_mm)) * (180/pi)
+        Where: sensor_size_mm = (pixel_count * pixel_size_microns) / 1000
+        """
+        import math
+
+        if not all([pixel_size_x, image_width, focal_length]):
+            return None, None
+
+        # Get binning factor (default 1)
+        bin_factor = 1
+        if binning:
+            try:
+                bin_factor = int(binning.split('x')[0])
+            except (ValueError, IndexError):
+                pass
+
+        # Calculate effective pixel size (accounting for binning)
+        effective_pixel_x = pixel_size_x * bin_factor
+        effective_pixel_y = (pixel_size_y or pixel_size_x) * bin_factor
+
+        # Calculate sensor size in mm (pixel size is in microns)
+        sensor_width_mm = (image_width * effective_pixel_x) / 1000
+        sensor_height_mm = ((image_height or image_width) * effective_pixel_y) / 1000
+
+        # Calculate FOV using arctan formula
+        fov_width = 2 * math.degrees(math.atan(sensor_width_mm / (2 * focal_length)))
+        fov_height = 2 * math.degrees(math.atan(sensor_height_mm / (2 * focal_length)))
+
+        return fov_width, fov_height
+
+    def _extract_ra(self, header: fits.Header) -> Optional[float]:
+        """Extract RA in degrees, handling sexagesimal format."""
+        for keyword in self.RA_KEYWORDS:
+            if keyword in header:
+                value = header[keyword]
+                if value is None:
+                    continue
+                # Try as float first
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    pass
+                # Try parsing sexagesimal (HH:MM:SS or HH MM SS)
+                try:
+                    ra_deg = self._parse_sexagesimal_ra(str(value))
+                    if ra_deg is not None:
+                        return ra_deg
+                except Exception:
+                    pass
+        return None
+
+    def _extract_dec(self, header: fits.Header) -> Optional[float]:
+        """Extract DEC in degrees, handling sexagesimal format."""
+        for keyword in self.DEC_KEYWORDS:
+            if keyword in header:
+                value = header[keyword]
+                if value is None:
+                    continue
+                # Try as float first
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    pass
+                # Try parsing sexagesimal (DD:MM:SS or DD MM SS)
+                try:
+                    dec_deg = self._parse_sexagesimal_dec(str(value))
+                    if dec_deg is not None:
+                        return dec_deg
+                except Exception:
+                    pass
+        return None
+
+    def _parse_sexagesimal_ra(self, ra_str: str) -> Optional[float]:
+        """Parse RA from HH:MM:SS or HH MM SS to degrees."""
+        # Remove any leading/trailing whitespace
+        ra_str = ra_str.strip()
+        # Try different separators
+        for sep in [':', ' ']:
+            parts = ra_str.split(sep)
+            if len(parts) >= 2:
+                try:
+                    hours = float(parts[0])
+                    minutes = float(parts[1])
+                    seconds = float(parts[2]) if len(parts) > 2 else 0.0
+                    # Convert to degrees (RA: 1 hour = 15 degrees)
+                    return (hours + minutes / 60 + seconds / 3600) * 15
+                except (ValueError, IndexError):
+                    continue
+        return None
+
+    def _parse_sexagesimal_dec(self, dec_str: str) -> Optional[float]:
+        """Parse DEC from DD:MM:SS or DD MM SS to degrees."""
+        dec_str = dec_str.strip()
+        # Check for negative sign
+        sign = 1
+        if dec_str.startswith('-'):
+            sign = -1
+            dec_str = dec_str[1:]
+        elif dec_str.startswith('+'):
+            dec_str = dec_str[1:]
+
+        for sep in [':', ' ']:
+            parts = dec_str.split(sep)
+            if len(parts) >= 2:
+                try:
+                    degrees = float(parts[0])
+                    minutes = float(parts[1])
+                    seconds = float(parts[2]) if len(parts) > 2 else 0.0
+                    return sign * (degrees + minutes / 60 + seconds / 3600)
+                except (ValueError, IndexError):
+                    continue
+        return None
 
     def _extract_date(self, header: fits.Header) -> Optional[datetime]:
         for keyword in self.DATE_KEYWORDS:

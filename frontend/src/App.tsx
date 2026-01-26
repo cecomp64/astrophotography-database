@@ -4,7 +4,9 @@ import Dashboard from './pages/Dashboard'
 import ObjectsPage from './pages/ObjectsPage'
 import ObjectDetailPage from './pages/ObjectDetailPage'
 import ImagesPage from './pages/ImagesPage'
+import ImageDetailPage from './pages/ImageDetailPage'
 import IndexerPage from './pages/IndexerPage'
+import CataloguePage from './pages/CataloguePage'
 
 function App() {
   return (
@@ -14,6 +16,8 @@ function App() {
         <Route path="/objects" element={<ObjectsPage />} />
         <Route path="/objects/:id" element={<ObjectDetailPage />} />
         <Route path="/images" element={<ImagesPage />} />
+        <Route path="/images/:id" element={<ImageDetailPage />} />
+        <Route path="/catalogue" element={<CataloguePage />} />
         <Route path="/indexer" element={<IndexerPage />} />
       </Routes>
     </Layout>
