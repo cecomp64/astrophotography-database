@@ -7,6 +7,7 @@ import ImagesPage from './pages/ImagesPage'
 import ImageDetailPage from './pages/ImageDetailPage'
 import IndexerPage from './pages/IndexerPage'
 import CataloguePage from './pages/CataloguePage'
+import SettingsPage from './pages/SettingsPage'
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/images/:id" element={<ImageDetailPage />} />
         <Route path="/catalogue" element={<CataloguePage />} />
         <Route path="/indexer" element={<IndexerPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </Layout>
   )

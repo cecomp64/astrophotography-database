@@ -145,6 +145,21 @@ export interface CatalogueObjectsResponse {
   objects: CatalogueObject[]
 }
 
+export interface LocationConfig {
+  latitude: number
+  longitude: number
+  elevation: number
+}
+
+export interface Configuration {
+  id: number
+  key: string
+  value: unknown
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
 // API functions
 export const objectsApi = {
   list: async (params?: { skip?: number; limit?: number; object_type?: string; constellation?: string }) => {
@@ -287,6 +302,33 @@ export const catalogueApi = {
 
   getCatalogs: async () => {
     const response = await apiClient.get<Record<string, number>>('/catalogue/catalogs')
+    return response.data
+  },
+}
+
+export const configApi = {
+  list: async () => {
+    const response = await apiClient.get<Configuration[]>('/config')
+    return response.data
+  },
+
+  get: async (key: string) => {
+    const response = await apiClient.get<Configuration>(`/config/${key}`)
+    return response.data
+  },
+
+  getLocation: async () => {
+    const response = await apiClient.get<LocationConfig | null>('/config/location/')
+    return response.data
+  },
+
+  setLocation: async (location: LocationConfig) => {
+    const response = await apiClient.put<LocationConfig>('/config/location/', location)
+    return response.data
+  },
+
+  updateLocation: async (location: Partial<LocationConfig>) => {
+    const response = await apiClient.patch<LocationConfig>('/config/location/', location)
     return response.data
   },
 }

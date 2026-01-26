@@ -11,6 +11,7 @@ const navItems = [
   { path: '/images', label: 'Images' },
   { path: '/catalogue', label: 'Catalogue' },
   { path: '/indexer', label: 'Indexer' },
+  { path: '/settings', label: 'Settings' },
 ]
 
 export default function Layout({ children }: LayoutProps) {

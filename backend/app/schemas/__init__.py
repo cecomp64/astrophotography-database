@@ -15,6 +15,14 @@ from app.schemas.images import (
     ImageObjectAssociation,
     FOVDetectionResult,
 )
+from app.schemas.configuration import (
+    ConfigurationBase,
+    ConfigurationCreate,
+    ConfigurationUpdate,
+    ConfigurationResponse,
+    LocationConfig,
+    LocationConfigUpdate,
+)
 
 __all__ = [
     "ObjectBase",
@@ -30,4 +38,10 @@ __all__ = [
     "ImageResponse",
     "ImageObjectAssociation",
     "FOVDetectionResult",
+    "ConfigurationBase",
+    "ConfigurationCreate",
+    "ConfigurationUpdate",
+    "ConfigurationResponse",
+    "LocationConfig",
+    "LocationConfigUpdate",
 ]
