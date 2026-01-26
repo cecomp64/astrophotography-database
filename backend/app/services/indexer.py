@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional
 from sqlalchemy.orm import Session
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.models import Image, AstroObject
 from app.services.fits_extractor import FitsExtractor, FitsMetadata
 from app.services.name_resolver import NameResolver
+
+logger = logging.getLogger(__name__)
 
 
 class FileIndexer:
@@ -18,7 +21,7 @@ class FileIndexer:
     def __init__(self, db: Session):
         self.db = db
         self.extractor = FitsExtractor()
-        self.resolver = NameResolver(db, use_mock=True)
+        self.resolver = NameResolver(db, use_mock=False)
 
     def index_directory(self, directory: str | Path, recursive: bool = True) -> dict:
         """
@@ -32,8 +35,10 @@ class FileIndexer:
             Dictionary with indexing statistics
         """
         directory = Path(directory)
+        logger.info(f"Starting directory indexing: {directory} (recursive={recursive})")
 
         if not directory.exists():
+            logger.error(f"Directory not found: {directory}")
             return {"error": f"Directory not found: {directory}", "indexed": 0, "skipped": 0, "errors": 0}
 
         stats = {"indexed": 0, "skipped": 0, "errors": 0, "files": []}
@@ -52,13 +57,17 @@ class FileIndexer:
 
             if result["status"] == "indexed":
                 stats["indexed"] += 1
+                logger.info(f"Indexed: {file_path}")
             elif result["status"] == "skipped":
                 stats["skipped"] += 1
+                logger.debug(f"Skipped: {file_path} - {result.get('reason', 'unknown')}")
             else:
                 stats["errors"] += 1
+                logger.error(f"Error indexing {file_path}: {result.get('error', 'unknown')}")
 
             stats["files"].append(result)
 
+        logger.info(f"Directory indexing complete. Indexed: {stats['indexed']}, Skipped: {stats['skipped']}, Errors: {stats['errors']}")
         return stats
 
     def index_file(self, file_path: str | Path) -> dict:
@@ -69,10 +78,12 @@ class FileIndexer:
             Dictionary with indexing result
         """
         file_path = Path(file_path)
+        logger.debug(f"Indexing file: {file_path}")
 
         # Check if already indexed
         existing = self.db.query(Image).filter(Image.file_path == str(file_path)).first()
         if existing:
+            logger.debug(f"File already indexed: {file_path} (image_id={existing.id})")
             return {"status": "skipped", "file": str(file_path), "reason": "already indexed", "image_id": existing.id}
 
         try:
@@ -82,7 +93,7 @@ class FileIndexer:
             # Resolve object name if present
             object_id = None
             if metadata.object_name:
-                obj = self.resolver.resolve(metadata.object_name)
+                obj = self.resolver.resolve(metadata.object_name, file_path=str(file_path))
                 if obj:
                     object_id = obj.id
 
@@ -107,6 +118,7 @@ class FileIndexer:
             self.db.commit()
             self.db.refresh(image)
 
+            logger.info(f"Successfully indexed: {file_path} (image_id={image.id}, object={metadata.object_name})")
             return {
                 "status": "indexed",
                 "file": str(file_path),
@@ -117,6 +129,7 @@ class FileIndexer:
 
         except Exception as e:
             self.db.rollback()
+            logger.error(f"Error indexing {file_path}: {str(e)}", exc_info=True)
             return {"status": "error", "file": str(file_path), "error": str(e)}
 
     async def index_file_async(self, file_path: str | Path) -> dict:
@@ -179,6 +192,7 @@ class FileIndexer:
         Reindex all files in the database (update metadata).
         """
         images = self.db.query(Image).all()
+        logger.info(f"Starting reindex of {len(images)} images")
         stats = {"updated": 0, "errors": 0}
 
         for image in images:
@@ -202,17 +216,20 @@ class FileIndexer:
 
                 # Try to resolve object if not already linked
                 if not image.object_id and metadata.object_name:
-                    obj = self.resolver.resolve(metadata.object_name)
+                    obj = self.resolver.resolve(metadata.object_name, file_path=str(file_path))
                     if obj:
                         image.object_id = obj.id
 
                 self.db.commit()
                 stats["updated"] += 1
+                logger.debug(f"Reindexed: {image.file_path}")
 
             except Exception as e:
                 self.db.rollback()
                 stats["errors"] += 1
+                logger.error(f"Error reindexing {image.file_path}: {str(e)}")
 
+        logger.info(f"Reindex complete. Updated: {stats['updated']}, Errors: {stats['errors']}")
         return stats
 
     def _is_fits_file(self, file_path: Path) -> bool:

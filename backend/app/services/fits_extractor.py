@@ -198,19 +198,34 @@ class FitsExtractor:
         return None
 
     def _extract_object_from_path(self, file_path: Path) -> Optional[str]:
-        # Look for object names in parent directories
+        # Look for object names in parent directories, preferring deeper nested ones
+        # This helps skip equipment names (like telescope names) in shallower directories
         parts = file_path.parts
 
-        for part in reversed(parts[:-1]):  # Exclude the filename
+        # Check deeper directories first (reverse from the file backwards)
+        # Skip shallow directories which likely contain equipment names
+        found_objects = []
+        for i, part in enumerate(reversed(parts[:-1])):  # Exclude the filename
+            depth = i  # How many levels deep from the file
+            
+            # Skip very shallow levels (0-2) which often contain equipment/date info
+            if depth < 2:
+                continue
+            
             # Check if directory name looks like an object name
             for pattern in self.FILENAME_PATTERNS:
                 # Adjust pattern to match full directory name
                 adjusted_pattern = pattern.replace("[-_]", "$").replace("^", "^").replace("$", "$")
                 if re.match(adjusted_pattern, part, re.IGNORECASE):
-                    return part
+                    found_objects.append((depth, part))
 
-            # Check for common catalog prefixes
-            if re.match(r"^(M|NGC|IC|Sh2?)\s?\d+", part, re.IGNORECASE):
-                return part
+            # Check for common catalog prefixes (more specific patterns)
+            if re.match(r"^(M\s?\d{1,3}|NGC\s?\d{1,5}|IC\s?\d{1,5}|Sh2?-?\d{1,3})$", part, re.IGNORECASE):
+                found_objects.append((depth, part))
+
+        # Return the deepest (most nested) object found
+        if found_objects:
+            found_objects.sort(reverse=True)  # Sort by depth descending
+            return found_objects[0][1]
 
         return None

@@ -9,8 +9,9 @@ services:
       POSTGRES_DB: astrophotography
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backend/db-init:/docker-entrypoint-initdb.d:ro
     ports:
-      - "5432:5432"
+      - "7432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -30,16 +31,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Mount your FITS data directories here as needed
-    # volumes:
-    #   - /path/to/your/fits/data:/data:ro
+    # Mount root filesystem so any path can be accessed via /data
+    volumes:
+      - /:/data:ro
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:80"
+      - "4000:80"
     depends_on:
       - api
 

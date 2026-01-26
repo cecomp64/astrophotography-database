@@ -1,6 +1,8 @@
-import httpx
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 from dataclasses import dataclass
+from telescopius import TelescopiusClient as OfficialTelescopiusClient
 from app.config import get_settings
 
 
@@ -13,6 +15,9 @@ class TelescopiusObject:
     magnitude: Optional[float] = None
     constellation: Optional[str] = None
     aliases: list[dict[str, str]] = None
+    url: Optional[str] = None
+    image_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
 
     def __post_init__(self):
         if self.aliases is None:
@@ -21,17 +26,19 @@ class TelescopiusObject:
 
 class TelescopiusClient:
     """
-    Client for the Telescopius REST API.
-
-    This is a placeholder implementation based on the expected API structure.
-    The actual API endpoints and response format should be adjusted based on
-    the real Telescopius API documentation.
+    Client for the Telescopius API using the official telescopius-api package.
     """
 
     def __init__(self):
         settings = get_settings()
-        self.base_url = settings.telescopius_api_url
         self.api_key = settings.telescopius_api_key
+        self._executor = ThreadPoolExecutor(max_workers=2)
+        self._client: Optional[OfficialTelescopiusClient] = None
+
+    def _get_client(self) -> OfficialTelescopiusClient:
+        if self._client is None:
+            self._client = OfficialTelescopiusClient(api_key=self.api_key)
+        return self._client
 
     async def search_object(self, query: str) -> Optional[TelescopiusObject]:
         """
@@ -44,97 +51,178 @@ class TelescopiusClient:
             TelescopiusObject if found, None otherwise
         """
         try:
-            async with httpx.AsyncClient() as client:
-                headers = {}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-
-                response = await client.get(
-                    f"{self.base_url}/objects/search",
-                    params={"q": query},
-                    headers=headers,
-                    timeout=10.0,
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    if data and isinstance(data, list) and len(data) > 0:
-                        obj = data[0]
-                        return self._parse_object(obj)
-                    elif data and isinstance(data, dict):
-                        return self._parse_object(data)
-
-                return None
-
-        except httpx.RequestError as e:
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                self._executor,
+                self._search_sync,
+                query
+            )
+            return results
+        except Exception as e:
             print(f"Telescopius API request failed: {e}")
             return None
 
-    async def get_object_by_id(self, object_id: str) -> Optional[TelescopiusObject]:
+    def search_object_sync(self, query: str) -> Optional[TelescopiusObject]:
         """
-        Get detailed object information by ID.
+        Synchronously search for an astronomical object by name.
+        
+        Args:
+            query: Object name to search for (e.g., "M42", "NGC 7000", "Orion Nebula")
+
+        Returns:
+            TelescopiusObject if found, None otherwise
         """
         try:
-            async with httpx.AsyncClient() as client:
-                headers = {}
-                if self.api_key:
-                    headers["Authorization"] = f"Bearer {self.api_key}"
-
-                response = await client.get(
-                    f"{self.base_url}/objects/{object_id}",
-                    headers=headers,
-                    timeout=10.0,
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    return self._parse_object(data)
-
-                return None
-
-        except httpx.RequestError as e:
+            return self._search_sync(query)
+        except Exception as e:
             print(f"Telescopius API request failed: {e}")
             return None
+
+    def _search_sync(self, query: str) -> Optional[TelescopiusObject]:
+        """Synchronous search wrapper for the official client."""
+        results = self._search_targets_sync(
+            lat=0,
+            lon=0,
+            timezone="UTC",
+            types=None,
+            min_alt=None,
+            mag_max=None,
+            query=query,
+            results_per_page=1
+        )
+
+        if results and results.get("page_results"):
+            obj_data = results["page_results"][0].get("object", {})
+            return self._parse_object(obj_data)
+
+        return None
+
+    async def search_targets(
+        self,
+        lat: float = 0,
+        lon: float = 0,
+        timezone: str = "UTC",
+        types: Optional[str] = None,
+        min_alt: Optional[int] = None,
+        mag_max: Optional[float] = None,
+        query: Optional[str] = None,
+        results_per_page: int = 20
+    ) -> dict:
+        """
+        Search for astronomical targets with filters.
+
+        Args:
+            lat: Latitude of observation location
+            lon: Longitude of observation location
+            timezone: Timezone string (e.g., "Europe/Lisbon")
+            types: Comma-separated object types (e.g., "GXY,ENEB")
+            min_alt: Minimum altitude in degrees
+            mag_max: Maximum magnitude
+            query: Search query string
+            results_per_page: Number of results per page
+
+        Returns:
+            Dict with 'matched' count and 'page_results' list
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                self._executor,
+                lambda: self._search_targets_sync(
+                    lat, lon, timezone, types, min_alt, mag_max, query, results_per_page
+                )
+            )
+        except Exception as e:
+            print(f"Telescopius API request failed: {e}")
+            return {"matched": 0, "page_results": []}
+
+    def _search_targets_sync(
+        self,
+        lat: float,
+        lon: float,
+        timezone: str,
+        types: Optional[str],
+        min_alt: Optional[int],
+        mag_max: Optional[float],
+        query: Optional[str],
+        results_per_page: int
+    ) -> dict:
+        """Synchronous search_targets wrapper."""
+        client = self._get_client()
+
+        kwargs = {
+            "lat": lat,
+            "lon": lon,
+            "timezone": timezone,
+            "results_per_page": results_per_page
+        }
+
+        if types:
+            kwargs["types"] = types
+        if min_alt is not None:
+            kwargs["min_alt"] = min_alt
+        if mag_max is not None:
+            kwargs["mag_max"] = mag_max
+        if query:
+            kwargs["name"] = query
+
+        return client.search_targets(**kwargs)
 
     def _parse_object(self, data: dict) -> TelescopiusObject:
         """
         Parse API response into TelescopiusObject.
-
-        Note: Field names should be adjusted based on actual API response format.
         """
         aliases = []
 
-        # Parse aliases from various possible response formats
-        if "aliases" in data:
-            for alias in data["aliases"]:
-                if isinstance(alias, str):
-                    aliases.append({"name": alias, "catalog": None})
-                elif isinstance(alias, dict):
-                    aliases.append({
-                        "name": alias.get("name", alias.get("alias", "")),
-                        "catalog": alias.get("catalog", alias.get("type", None))
-                    })
+        # Parse IDs as aliases
+        for id_str in data.get("ids", []):
+            if id_str != data.get("main_id"):
+                aliases.append({"name": id_str, "catalog": None})
 
-        # Also check for catalog-specific fields
-        for catalog in ["messier", "ngc", "ic", "sharpless", "caldwell"]:
-            if catalog in data and data[catalog]:
-                aliases.append({
-                    "name": data[catalog],
-                    "catalog": catalog.upper()
-                })
+        # Parse alternative IDs
+        for alt_id in data.get("alt_ids", []):
+            aliases.append({"name": alt_id, "catalog": None})
+
+        # Parse common names
+        for name in data.get("names", []):
+            if name != data.get("main_name"):
+                aliases.append({"name": name, "catalog": None})
+
+        # Determine object type from types list
+        types = data.get("types", [])
+        object_type = None
+        type_mapping = {
+            "gxy": "Galaxy",
+            "sgx": "Spiral Galaxy",
+            "eneb": "Emission Nebula",
+            "rneb": "Reflection Nebula",
+            "pneb": "Planetary Nebula",
+            "snr": "Supernova Remnant",
+            "ocl": "Open Cluster",
+            "gcl": "Globular Cluster",
+            "dneb": "Dark Nebula",
+        }
+        for t in types:
+            if t.lower() in type_mapping:
+                object_type = type_mapping[t.lower()]
+                break
+        if not object_type and types:
+            object_type = types[0]
 
         return TelescopiusObject(
-            name=data.get("name", data.get("primary_name", "")),
-            ra=data.get("ra", data.get("right_ascension")),
-            dec=data.get("dec", data.get("declination")),
-            object_type=data.get("type", data.get("object_type")),
-            magnitude=data.get("magnitude", data.get("mag")),
-            constellation=data.get("constellation"),
+            name=data.get("main_name", data.get("main_id", "")),
+            ra=data.get("ra"),
+            dec=data.get("dec"),
+            object_type=object_type,
+            magnitude=data.get("visual_mag", data.get("photo_mag")),
+            constellation=data.get("con_name", data.get("con")),
             aliases=aliases,
+            url=data.get("url"),
+            image_url=data.get("main_image_url"),
+            thumbnail_url=data.get("thumbnail_url"),
         )
 
 
-# For testing/development without API access
 class MockTelescopiusClient(TelescopiusClient):
     """Mock client with common objects for testing."""
 
@@ -189,15 +277,17 @@ class MockTelescopiusClient(TelescopiusClient):
         ),
     }
 
+    def __init__(self):
+        self.api_key = None
+        self._executor = None
+        self._client = None
+
     async def search_object(self, query: str) -> Optional[TelescopiusObject]:
-        # Normalize query
         normalized = query.lower().replace(" ", "").replace("-", "")
 
-        # Check direct match
         if normalized in self.MOCK_OBJECTS:
             return self.MOCK_OBJECTS[normalized]
 
-        # Check aliases
         for obj in self.MOCK_OBJECTS.values():
             for alias in obj.aliases:
                 if alias["name"].lower().replace(" ", "") == normalized:
@@ -207,3 +297,24 @@ class MockTelescopiusClient(TelescopiusClient):
                 return obj
 
         return None
+
+    async def search_targets(self, **kwargs) -> dict:
+        query = kwargs.get("query", "").lower().replace(" ", "").replace("-", "")
+        results = []
+
+        for key, obj in self.MOCK_OBJECTS.items():
+            if not query or query in key or query in obj.name.lower().replace(" ", ""):
+                results.append({
+                    "object": {
+                        "main_id": obj.aliases[0]["name"] if obj.aliases else obj.name,
+                        "main_name": obj.name,
+                        "ids": [a["name"] for a in obj.aliases],
+                        "names": [obj.name],
+                        "ra": obj.ra,
+                        "dec": obj.dec,
+                        "con_name": obj.constellation,
+                        "visual_mag": obj.magnitude,
+                    }
+                })
+
+        return {"matched": len(results), "page_results": results}

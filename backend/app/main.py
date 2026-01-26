@@ -1,11 +1,21 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine, Base
 from app.routers import objects_router, images_router, indexer_router
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Create database tables
+logger.info("Creating database tables...")
 Base.metadata.create_all(bind=engine)
+logger.info("Database tables created successfully.")
 
 app = FastAPI(
     title="Astrophotography Database API",

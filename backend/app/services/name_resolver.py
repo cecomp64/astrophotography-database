@@ -1,10 +1,13 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
+import logging
 
 from app.models import AstroObject, ObjectAlias
 from app.services.telescopius import TelescopiusClient, MockTelescopiusClient, TelescopiusObject
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class NameResolver:
@@ -19,6 +22,7 @@ class NameResolver:
 
     def __init__(self, db: Session, use_mock: bool = False):
         self.db = db
+        self.failed_lookups = set()  # Cache failed Telescopius lookups to avoid retrying
         settings = get_settings()
 
         # Use mock client if no API key is configured or explicitly requested
@@ -27,10 +31,20 @@ class NameResolver:
         else:
             self.client = TelescopiusClient()
 
-    def resolve(self, name: str) -> Optional[AstroObject]:
+    def resolve(self, name: str, file_path: Optional[str] = None) -> Optional[AstroObject]:
         """
         Resolve an object name synchronously.
-        First checks local database, then falls back to Telescopius.
+        First checks local database, then falls back to Telescopius if available.
+        
+        Args:
+            name: The object name to resolve
+            file_path: Optional file path for logging context
+        """
+        return self._resolve_with_context(name, file_path)
+
+    def _resolve_with_context(self, name: str, file_path: Optional[str] = None) -> Optional[AstroObject]:
+        """
+        Internal resolve method with file path context for logging.
         """
         # Normalize the name for comparison
         normalized = self._normalize_name(name)
@@ -39,6 +53,38 @@ class NameResolver:
         obj = self._find_in_database(normalized)
         if obj:
             return obj
+
+        # Check if this lookup has already failed
+        if normalized in self.failed_lookups:
+            logger = logging.getLogger(__name__)
+            file_context = f" (file: {file_path})" if file_path else ""
+            logger.debug(f"Previously failed lookup for '{name}'{file_context}, skipping Telescopius")
+            return None
+
+        # For sync resolution, try Telescopius client's sync method if available
+        try:
+            # Check if client has a blocking search method
+            if hasattr(self.client, 'search_object_sync'):
+                logger = logging.getLogger(__name__)
+                file_context = f" (file: {file_path})" if file_path else ""
+                logger.info(f"Looking up '{name}' in Telescopius{file_context}...")
+                telescopius_obj = self.client.search_object_sync(name)
+                if telescopius_obj:
+                    logger.info(f"Found Telescopius match: {telescopius_obj.name}, creating database entry...")
+                    # Create and store the object in our database
+                    obj = self._create_from_telescopius(telescopius_obj, name)
+                    logger.info(f"Object created with ID {obj.id}, name: {obj.primary_name}")
+                    return obj
+                else:
+                    logger.info(f"No Telescopius match found for '{name}'{file_context}")
+                    # Remember this failed lookup
+                    self.failed_lookups.add(normalized)
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            file_context = f" (file: {file_path})" if file_path else ""
+            logger.error(f"Error resolving '{name}'{file_context} via Telescopius: {e}")
+            # Remember this failed lookup
+            self.failed_lookups.add(normalized)
 
         return None
 
@@ -102,8 +148,20 @@ class NameResolver:
         self.db.add(obj)
         self.db.flush()  # Get the ID
 
-        # Add aliases
+        # Add the original query as an alias first (before processing other aliases)
+        # This ensures we can find it by the name the user searched for
         added_aliases = set()
+        query_normalized = original_query.lower()
+        if query_normalized != tobj.name.lower():
+            alias = ObjectAlias(
+                object_id=obj.id,
+                alias_name=original_query,
+                catalog=self._detect_catalog(original_query),
+            )
+            self.db.add(alias)
+            added_aliases.add(query_normalized)
+
+        # Add aliases from Telescopius response
         for alias_data in tobj.aliases:
             alias_name = alias_data.get("name", "")
             if alias_name and alias_name.lower() not in added_aliases:
@@ -114,16 +172,6 @@ class NameResolver:
                 )
                 self.db.add(alias)
                 added_aliases.add(alias_name.lower())
-
-        # Add the original query as an alias if not already present
-        query_normalized = original_query.lower()
-        if query_normalized not in added_aliases and query_normalized != tobj.name.lower():
-            alias = ObjectAlias(
-                object_id=obj.id,
-                alias_name=original_query,
-                catalog=self._detect_catalog(original_query),
-            )
-            self.db.add(alias)
 
         self.db.commit()
         self.db.refresh(obj)
