@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { imagesApi } from '../api/client'
+import { formatRA, formatDec } from '../utils/coordinates'
 
 export default function ImageDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -23,24 +24,6 @@ export default function ImageDetailPage() {
       return `${(seconds / 60).toFixed(1)} min`
     }
     return `${seconds.toFixed(1)} s`
-  }
-
-  const formatCoordinate = (value: number | null, isRa: boolean): string => {
-    if (value === null) return '-'
-    if (isRa) {
-      const hours = value / 15
-      const h = Math.floor(hours)
-      const m = Math.floor((hours - h) * 60)
-      const s = ((hours - h) * 60 - m) * 60
-      return `${h}h ${m}m ${s.toFixed(1)}s`
-    } else {
-      const sign = value >= 0 ? '+' : '-'
-      const absVal = Math.abs(value)
-      const d = Math.floor(absVal)
-      const m = Math.floor((absVal - d) * 60)
-      const s = ((absVal - d) * 60 - m) * 60
-      return `${sign}${d}° ${m}' ${s.toFixed(1)}"`
-    }
   }
 
   const formatFov = (width: number | null, height: number | null): string => {
@@ -132,11 +115,11 @@ export default function ImageDetailPage() {
           <dl className="space-y-3">
             <div className="flex justify-between">
               <dt className="text-gray-400">Center RA</dt>
-              <dd className="font-mono">{formatCoordinate(image.ra, true)}</dd>
+              <dd className="font-mono">{formatRA(image.ra)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-gray-400">Center Dec</dt>
-              <dd className="font-mono">{formatCoordinate(image.dec, false)}</dd>
+              <dd className="font-mono">{formatDec(image.dec)}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-gray-400">FOV Size</dt>

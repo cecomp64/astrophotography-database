@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { AstroObject } from '../api/client'
+import { formatRA, formatDec } from '../utils/coordinates'
 
 interface ObjectCardProps {
   object: AstroObject
@@ -32,12 +33,17 @@ export default function ObjectCard({ object }: ObjectCardProps) {
           </div>
         )}
 
-        {object.ra !== null && object.dec !== null && (
+        {object.ra !== null && (
           <div className="flex justify-between">
-            <span>RA/Dec:</span>
-            <span className="text-gray-200">
-              {object.ra.toFixed(2)}° / {object.dec.toFixed(2)}°
-            </span>
+            <span>RA:</span>
+            <span className="text-gray-200 font-mono">{formatRA(object.ra)}</span>
+          </div>
+        )}
+
+        {object.dec !== null && (
+          <div className="flex justify-between">
+            <span>Dec:</span>
+            <span className="text-gray-200 font-mono">{formatDec(object.dec)}</span>
           </div>
         )}
       </div>

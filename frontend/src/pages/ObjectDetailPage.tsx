@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { objectsApi, imagesApi } from '../api/client'
 import ImageTable from '../components/ImageTable'
 import AltitudeChart from '../components/AltitudeChart'
+import { formatRA, formatDec } from '../utils/coordinates'
 
 export default function ObjectDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -71,14 +72,14 @@ export default function ObjectDetailPage() {
           {object.ra !== null && (
             <div>
               <div className="text-gray-400 text-sm">Right Ascension</div>
-              <div className="text-lg">{object.ra.toFixed(4)}°</div>
+              <div className="text-lg font-mono">{formatRA(object.ra)}</div>
             </div>
           )}
 
           {object.dec !== null && (
             <div>
               <div className="text-gray-400 text-sm">Declination</div>
-              <div className="text-lg">{object.dec.toFixed(4)}°</div>
+              <div className="text-lg font-mono">{formatDec(object.dec)}</div>
             </div>
           )}
 

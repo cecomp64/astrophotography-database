@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { catalogueApi, CatalogueObject } from '../api/client'
+import { formatRA, formatDec } from '../utils/coordinates'
 
 export default function CataloguePage() {
   const [catalogFilter, setCatalogFilter] = useState('')
@@ -52,24 +53,6 @@ export default function CataloguePage() {
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setPage(0)
-  }
-
-  const formatCoordinate = (value: number | null, isRa: boolean): string => {
-    if (value === null) return '-'
-    if (isRa) {
-      const hours = value / 15
-      const h = Math.floor(hours)
-      const m = Math.floor((hours - h) * 60)
-      const s = ((hours - h) * 60 - m) * 60
-      return `${h}h ${m}m ${s.toFixed(1)}s`
-    } else {
-      const sign = value >= 0 ? '+' : '-'
-      const absVal = Math.abs(value)
-      const d = Math.floor(absVal)
-      const m = Math.floor((absVal - d) * 60)
-      const s = ((absVal - d) * 60 - m) * 60
-      return `${sign}${d}° ${m}' ${s.toFixed(1)}"`
-    }
   }
 
   const getAliasesByCatalog = (obj: CatalogueObject, catalog: string): string[] => {
@@ -286,10 +269,10 @@ export default function CataloguePage() {
                     </td>
                     <td>{obj.constellation || '-'}</td>
                     <td className="font-mono text-sm">
-                      {formatCoordinate(obj.ra, true)}
+                      {formatRA(obj.ra)}
                     </td>
                     <td className="font-mono text-sm">
-                      {formatCoordinate(obj.dec, false)}
+                      {formatDec(obj.dec)}
                     </td>
                     <td>
                       {obj.magnitude !== null ? obj.magnitude.toFixed(1) : '-'}
