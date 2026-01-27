@@ -14,6 +14,8 @@ from app.schemas.images import (
     ImageResponse,
     ImageObjectAssociation,
     FOVDetectionResult,
+    SubExposureStats,
+    ImageGroup,
 )
 from app.schemas.configuration import (
     ConfigurationBase,
@@ -38,6 +40,8 @@ __all__ = [
     "ImageResponse",
     "ImageObjectAssociation",
     "FOVDetectionResult",
+    "SubExposureStats",
+    "ImageGroup",
     "ConfigurationBase",
     "ConfigurationCreate",
     "ConfigurationUpdate",

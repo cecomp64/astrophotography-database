@@ -6,8 +6,9 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models import Image, AstroObject, ImageObject
-from app.schemas import ImageResponse, ImageUpdate
+from app.schemas import ImageResponse, ImageUpdate, ImageGroup, SubExposureStats
 from app.services.fov_matcher import FOVMatcher
+from collections import defaultdict
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -68,10 +69,14 @@ def list_images(
     camera: Optional[str] = None,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
+    ids: Optional[list[int]] = Query(None),
     db: Session = Depends(get_db),
 ):
     """List images with optional filters."""
     query = db.query(Image)
+
+    if ids:
+        query = query.filter(Image.id.in_(ids))
 
     if object_id:
         # Filter by object via either legacy FK or association table
@@ -135,6 +140,84 @@ def get_image_stats(db: Session = Depends(get_db)):
         "by_filter": {f: c for f, c in filter_stats if f},
         "by_telescope": {t: c for t, c in telescope_stats if t},
     }
+
+
+@router.get("/grouped", response_model=list[ImageGroup])
+def get_grouped_images(
+    telescope: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Get images grouped by date, target, and telescope."""
+    query = db.query(Image)
+
+    if telescope:
+        query = query.filter(Image.telescope.ilike(f"%{telescope}%"))
+
+    images = query.order_by(Image.date_taken.desc()).all()
+
+    # Group by (date, target, telescope)
+    groups: dict[tuple, dict] = defaultdict(lambda: {
+        "images": [],
+        "subs": defaultdict(int),  # (filter_name, exposure_time) -> count
+        "cameras": set(),
+        "total_exposure": 0.0,
+        "target_id": None,
+        "target_name": None,
+    })
+
+    for img in images:
+        # Extract date portion only
+        date_str = img.date_taken.strftime("%Y-%m-%d") if img.date_taken else "Unknown"
+        target_name = img.object.primary_name if img.object else None
+        telescope_name = img.telescope or "Unknown"
+
+        key = (date_str, target_name, telescope_name)
+        group = groups[key]
+
+        group["images"].append(img)
+        group["target_id"] = img.object_id
+        group["target_name"] = target_name
+
+        if img.exposure_time:
+            group["total_exposure"] += img.exposure_time
+            # Group by (filter, exposure_time) tuple
+            sub_key = (img.filter_name, img.exposure_time)
+            group["subs"][sub_key] += 1
+
+        if img.camera:
+            group["cameras"].add(img.camera)
+
+    # Convert to response format
+    result = []
+    for (date_str, target_name, telescope_name), group in groups.items():
+        # Build subs list sorted by filter name then exposure time
+        subs = []
+        for (filter_name, exposure_time), count in group["subs"].items():
+            subs.append(SubExposureStats(
+                filter_name=filter_name,
+                exposure_time=exposure_time,
+                count=count,
+                total_exposure=count * exposure_time,
+            ))
+        # Sort: by filter name (None last), then by exposure time
+        subs.sort(key=lambda s: (s.filter_name is None, s.filter_name or "", s.exposure_time))
+
+        result.append(ImageGroup(
+            date=date_str,
+            target_name=target_name,
+            target_id=group["target_id"],
+            telescope=telescope_name if telescope_name != "Unknown" else None,
+            total_frames=len(group["images"]),
+            total_exposure_seconds=group["total_exposure"],
+            subs=subs,
+            cameras=sorted(group["cameras"]),
+            image_ids=[img.id for img in group["images"]],
+        ))
+
+    # Sort by date descending, then by target name
+    result.sort(key=lambda g: (g.date, g.target_name or ""), reverse=True)
+
+    return result
 
 
 @router.get("/{image_id}", response_model=ImageResponse)

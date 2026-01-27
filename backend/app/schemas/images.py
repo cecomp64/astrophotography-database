@@ -76,3 +76,24 @@ class FOVDetectionResult(BaseModel):
     catalog_number: str
     name: Optional[str] = None
     angular_distance_arcmin: float
+
+
+class SubExposureStats(BaseModel):
+    """Stats for a specific filter + sub-exposure combination."""
+    filter_name: str | None
+    exposure_time: float  # individual sub exposure in seconds
+    count: int
+    total_exposure: float  # count * exposure_time
+
+
+class ImageGroup(BaseModel):
+    """A group of images from a single imaging session."""
+    date: str
+    target_name: Optional[str] = None
+    target_id: Optional[int] = None
+    telescope: Optional[str] = None
+    total_frames: int
+    total_exposure_seconds: float
+    subs: list[SubExposureStats]  # grouped by (filter, exposure_time)
+    cameras: list[str]
+    image_ids: list[int]

@@ -83,6 +83,25 @@ export interface ImageStats {
   by_telescope: Record<string, number>
 }
 
+export interface SubExposureStats {
+  filter_name: string | null
+  exposure_time: number  // individual sub in seconds
+  count: number
+  total_exposure: number
+}
+
+export interface ImageGroup {
+  date: string
+  target_name: string | null
+  target_id: number | null
+  telescope: string | null
+  total_frames: number
+  total_exposure_seconds: number
+  subs: SubExposureStats[]
+  cameras: string[]
+  image_ids: number[]
+}
+
 export interface IndexResult {
   status: string
   indexed: number
@@ -247,6 +266,18 @@ export const imagesApi = {
 
   linkToObject: async (imageId: number, objectId: number) => {
     const response = await apiClient.post<Image>(`/images/${imageId}/link-object/${objectId}`)
+    return response.data
+  },
+
+  getGrouped: async (params?: { telescope?: string }) => {
+    const response = await apiClient.get<ImageGroup[]>('/images/grouped', { params })
+    return response.data
+  },
+
+  getByIds: async (ids: number[]) => {
+    const response = await apiClient.get<Image[]>('/images', {
+      params: { ids, limit: ids.length }
+    })
     return response.data
   },
 }
