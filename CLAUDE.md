@@ -15,28 +15,50 @@ Astrophotography Database is a web application for indexing and exploring astrop
 
 ## Development Commands
 
-### Docker Compose (Recommended)
+### Starting the Application
 ```bash
 cp .env.example .env
-docker-compose up -d
+docker compose up -d
 # Frontend: http://localhost:4000, API: http://localhost:8000, Docs: http://localhost:8000/docs
 ```
 
-### Backend (Manual)
+### Viewing Logs
 ```bash
-cd backend
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn app.main:app --reload  # Runs on :8000
+docker compose logs -f           # All services
+docker compose logs -f backend   # Backend only
+docker compose logs -f frontend  # Frontend only
 ```
 
-### Frontend
+### Database Migrations
 ```bash
-cd frontend
-npm install
-npm run dev      # Dev server on :3000, proxies /api to :8000
-npm run build    # Production build
-npm run lint     # ESLint
+docker compose exec backend alembic upgrade head     # Run migrations
+docker compose exec backend alembic revision --autogenerate -m "description"  # Create migration
+docker compose exec backend alembic downgrade -1     # Rollback one migration
+```
+
+### Running Backend Commands
+```bash
+docker compose exec backend python -m pytest        # Run tests
+docker compose exec backend python -c "..."         # Run Python code
+```
+
+### Frontend Commands
+```bash
+docker compose exec frontend npm run lint           # ESLint
+docker compose exec frontend npm run build          # Production build
+docker compose run --rm frontend npm install <pkg>  # Install new package
+```
+
+### Database Access
+```bash
+docker compose exec db psql -U postgres -d astrophotography  # PostgreSQL shell
+```
+
+### Rebuilding Containers
+```bash
+docker compose build              # Rebuild all
+docker compose build backend      # Rebuild specific service
+docker compose up -d --build      # Rebuild and restart
 ```
 
 ## Architecture
