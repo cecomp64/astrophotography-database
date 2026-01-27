@@ -151,6 +151,28 @@ export interface LocationConfig {
   elevation: number
 }
 
+export interface TimezoneConfig {
+  timezone: string
+}
+
+export interface AltitudeDataPoint {
+  time: string
+  altitude: number
+  azimuth: number
+}
+
+export interface AltitudeChartData {
+  object_name: string
+  date: string
+  timezone: string
+  location_configured: boolean
+  data: AltitudeDataPoint[]
+  transit_time: string | null
+  transit_altitude: number | null
+  rise_time: string | null
+  set_time: string | null
+}
+
 export interface Configuration {
   id: number
   key: string
@@ -189,6 +211,12 @@ export const objectsApi = {
 
   delete: async (id: number) => {
     await apiClient.delete(`/objects/${id}`)
+  },
+
+  getAltitude: async (id: number, date?: string) => {
+    const params = date ? { chart_date: date } : {}
+    const response = await apiClient.get<AltitudeChartData>(`/objects/${id}/altitude`, { params })
+    return response.data
   },
 }
 
@@ -329,6 +357,16 @@ export const configApi = {
 
   updateLocation: async (location: Partial<LocationConfig>) => {
     const response = await apiClient.patch<LocationConfig>('/config/location/', location)
+    return response.data
+  },
+
+  getTimezone: async () => {
+    const response = await apiClient.get<TimezoneConfig | null>('/config/timezone/')
+    return response.data
+  },
+
+  setTimezone: async (timezone: TimezoneConfig) => {
+    const response = await apiClient.put<TimezoneConfig>('/config/timezone/', timezone)
     return response.data
   },
 }

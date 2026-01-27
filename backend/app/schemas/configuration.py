@@ -17,6 +17,11 @@ class LocationConfigUpdate(BaseModel):
     elevation: Optional[float] = Field(None, ge=-500, le=9000, description="Elevation in meters above sea level")
 
 
+class TimezoneConfig(BaseModel):
+    """Timezone configuration."""
+    timezone: str = Field(..., description="IANA timezone identifier (e.g. 'America/New_York', 'Europe/London')")
+
+
 class ConfigurationBase(BaseModel):
     """Base configuration schema."""
     key: str = Field(..., max_length=100)

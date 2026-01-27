@@ -2,11 +2,38 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, exists
 from typing import Optional
+from datetime import datetime, date, timezone
+from zoneinfo import ZoneInfo
+from pydantic import BaseModel
+
+from astropy.coordinates import EarthLocation, AltAz, SkyCoord
+from astropy.time import Time
+import astropy.units as u
+import numpy as np
 
 from app.database import get_db
 from app.models import AstroObject, ObjectAlias, Image, ImageObject
+from app.models.configuration import Configuration
 from app.schemas import ObjectResponse, ObjectCreate, ObjectUpdate, ObjectAliasCreate
 from app.services.name_resolver import NameResolver
+
+
+class AltitudeDataPoint(BaseModel):
+    time: str
+    altitude: float
+    azimuth: float
+
+
+class AltitudeChartResponse(BaseModel):
+    object_name: str
+    date: str
+    timezone: str
+    location_configured: bool
+    data: list[AltitudeDataPoint]
+    transit_time: Optional[str]
+    transit_altitude: Optional[float]
+    rise_time: Optional[str]
+    set_time: Optional[str]
 
 router = APIRouter(prefix="/objects", tags=["objects"])
 
@@ -252,3 +279,123 @@ async def resolve_object(
         "aliases": obj.aliases,
         "image_count": len(obj.images),
     }
+
+
+@router.get("/{object_id}/altitude", response_model=AltitudeChartResponse)
+def get_altitude_chart(
+    object_id: int,
+    chart_date: Optional[date] = Query(None, description="Date for the chart (defaults to today)"),
+    db: Session = Depends(get_db),
+):
+    """
+    Calculate altitude of an object over the course of a night.
+    Returns altitude/azimuth data points at 10-minute intervals over 24 hours
+    centered on local midnight for the given date.
+    Times are displayed in the configured timezone.
+    """
+    obj = db.query(AstroObject).filter(AstroObject.id == object_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Object not found")
+
+    if obj.ra is None or obj.dec is None:
+        raise HTTPException(status_code=400, detail="Object has no coordinates")
+
+    # Get timezone configuration (default to UTC)
+    timezone_config = db.query(Configuration).filter(Configuration.key == "timezone").first()
+    tz_name = "UTC"
+    if timezone_config and timezone_config.value:
+        tz_name = timezone_config.value.get("timezone", "UTC")
+
+    try:
+        local_tz = ZoneInfo(tz_name)
+    except KeyError:
+        local_tz = ZoneInfo("UTC")
+        tz_name = "UTC"
+
+    # Get location configuration
+    location_config = db.query(Configuration).filter(Configuration.key == "location").first()
+    if not location_config:
+        return AltitudeChartResponse(
+            object_name=obj.primary_name,
+            date=str(chart_date or date.today()),
+            timezone=tz_name,
+            location_configured=False,
+            data=[],
+            transit_time=None,
+            transit_altitude=None,
+            rise_time=None,
+            set_time=None,
+        )
+
+    loc = location_config.value
+    latitude = loc.get("latitude", 0)
+    longitude = loc.get("longitude", 0)
+    elevation = loc.get("elevation", 0)
+
+    # Create location and sky coordinate
+    observer_location = EarthLocation(lat=latitude * u.deg, lon=longitude * u.deg, height=elevation * u.m)
+    target = SkyCoord(ra=obj.ra * u.deg, dec=obj.dec * u.deg)
+
+    # Use provided date or today
+    target_date = chart_date or date.today()
+
+    # Create time array: 24 hours centered on local midnight, 10-minute intervals
+    # Create midnight in the local timezone, then convert to UTC for astropy
+    local_midnight = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0, tzinfo=local_tz)
+    utc_midnight = local_midnight.astimezone(timezone.utc)
+
+    # Generate times from 12 hours before to 12 hours after local midnight
+    times_hours = np.linspace(-12, 12, 145)  # 145 points = every 10 minutes over 24 hours
+    times = Time(utc_midnight) + times_hours * u.hour
+
+    # Calculate alt/az for all times
+    altaz_frame = AltAz(obstime=times, location=observer_location)
+    altaz = target.transform_to(altaz_frame)
+
+    altitudes = altaz.alt.deg
+    azimuths = altaz.az.deg
+
+    # Find transit (maximum altitude)
+    max_alt_idx = np.argmax(altitudes)
+    transit_time_utc = times[max_alt_idx].to_datetime(timezone=timezone.utc)
+    transit_time_local = transit_time_utc.astimezone(local_tz)
+    transit_altitude = float(altitudes[max_alt_idx])
+
+    # Find rise and set times (crossing 0 altitude)
+    rise_time = None
+    set_time = None
+
+    for i in range(1, len(altitudes)):
+        # Rising: previous altitude < 0, current >= 0
+        if altitudes[i - 1] < 0 and altitudes[i] >= 0 and rise_time is None:
+            dt_utc = times[i].to_datetime(timezone=timezone.utc)
+            dt_local = dt_utc.astimezone(local_tz)
+            rise_time = dt_local.strftime("%H:%M")
+        # Setting: previous altitude >= 0, current < 0
+        if altitudes[i - 1] >= 0 and altitudes[i] < 0:
+            dt_utc = times[i].to_datetime(timezone=timezone.utc)
+            dt_local = dt_utc.astimezone(local_tz)
+            set_time = dt_local.strftime("%H:%M")
+
+    # Build data points with local times
+    data_points = []
+    for i in range(len(times)):
+        dt_utc = times[i].to_datetime(timezone=timezone.utc)
+        dt_local = dt_utc.astimezone(local_tz)
+        data_points.append(AltitudeDataPoint(
+            time=dt_local.strftime("%H:%M"),
+            altitude=round(float(altitudes[i]), 2),
+            azimuth=round(float(azimuths[i]), 2),
+        ))
+
+    return AltitudeChartResponse(
+        object_name=obj.primary_name,
+        date=str(target_date),
+        timezone=tz_name,
+        location_configured=True,
+        data=data_points,
+        transit_time=transit_time_local.strftime("%H:%M") if transit_time_local else None,
+        transit_altitude=round(transit_altitude, 2) if transit_altitude else None,
+        rise_time=rise_time,
+        set_time=set_time,
+    )

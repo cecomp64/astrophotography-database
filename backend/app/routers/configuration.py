@@ -10,11 +10,13 @@ from app.schemas.configuration import (
     ConfigurationUpdate,
     LocationConfig,
     LocationConfigUpdate,
+    TimezoneConfig,
 )
 
 router = APIRouter(prefix="/config", tags=["configuration"])
 
 LOCATION_KEY = "location"
+TIMEZONE_KEY = "timezone"
 
 
 @router.get("", response_model=list[ConfigurationResponse])
@@ -125,3 +127,42 @@ def update_location(location: LocationConfigUpdate, db: Session = Depends(get_db
     db.commit()
     db.refresh(db_config)
     return LocationConfig(**db_config.value)
+
+
+# Timezone-specific endpoints
+
+@router.get("/timezone/", response_model=Optional[TimezoneConfig])
+def get_timezone(db: Session = Depends(get_db)):
+    """Get the timezone configuration."""
+    config = db.query(Configuration).filter(Configuration.key == TIMEZONE_KEY).first()
+    if not config:
+        return None
+    return TimezoneConfig(**config.value)
+
+
+@router.put("/timezone/", response_model=TimezoneConfig)
+def set_timezone(timezone_config: TimezoneConfig, db: Session = Depends(get_db)):
+    """Set the timezone configuration."""
+    import zoneinfo
+
+    # Validate the timezone
+    try:
+        zoneinfo.ZoneInfo(timezone_config.timezone)
+    except (KeyError, zoneinfo.ZoneInfoNotFoundError):
+        raise HTTPException(status_code=400, detail=f"Invalid timezone: {timezone_config.timezone}")
+
+    db_config = db.query(Configuration).filter(Configuration.key == TIMEZONE_KEY).first()
+
+    if db_config:
+        db_config.value = timezone_config.model_dump()
+    else:
+        db_config = Configuration(
+            key=TIMEZONE_KEY,
+            value=timezone_config.model_dump(),
+            description="Timezone for display (IANA timezone identifier)",
+        )
+        db.add(db_config)
+
+    db.commit()
+    db.refresh(db_config)
+    return TimezoneConfig(**db_config.value)

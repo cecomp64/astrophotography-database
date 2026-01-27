@@ -2,6 +2,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { objectsApi, imagesApi } from '../api/client'
 import ImageTable from '../components/ImageTable'
+import AltitudeChart from '../components/AltitudeChart'
 
 export default function ObjectDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -103,6 +104,13 @@ export default function ObjectDetailPage() {
           </div>
         )}
       </div>
+
+      {object.ra !== null && object.dec !== null && (
+        <div className="card">
+          <h2 className="text-xl font-semibold mb-4">Altitude Tonight</h2>
+          <AltitudeChart objectId={objectId} />
+        </div>
+      )}
 
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Images</h2>
