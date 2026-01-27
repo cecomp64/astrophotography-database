@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { objectsApi, imagesApi } from '../api/client'
@@ -5,9 +6,17 @@ import ImageTable from '../components/ImageTable'
 import AltitudeChart from '../components/AltitudeChart'
 import { formatRA, formatDec } from '../utils/coordinates'
 
+type SortField = 'date_taken' | 'exposure_time' | 'filter_name'
+type SortOrder = 'asc' | 'desc'
+
 export default function ObjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const objectId = parseInt(id!, 10)
+
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(25)
+  const [sortBy, setSortBy] = useState<SortField>('date_taken')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
 
   const { data: object, isLoading: objectLoading } = useQuery({
     queryKey: ['object', objectId],
@@ -16,10 +25,29 @@ export default function ObjectDetailPage() {
   })
 
   const { data: images, isLoading: imagesLoading } = useQuery({
-    queryKey: ['objectImages', objectId],
-    queryFn: () => imagesApi.list({ object_id: objectId, limit: 100 }),
+    queryKey: ['objectImages', objectId, page, pageSize, sortBy, sortOrder],
+    queryFn: () => imagesApi.list({
+      object_id: objectId,
+      skip: page * pageSize,
+      limit: pageSize,
+      sort_by: sortBy,
+      sort_order: sortOrder,
+    }),
     enabled: !isNaN(objectId),
   })
+
+  const totalImages = object?.image_count ?? 0
+  const totalPages = Math.ceil(totalImages / pageSize)
+
+  const handleSortChange = (field: SortField) => {
+    if (field === sortBy) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(field)
+      setSortOrder('desc')
+    }
+    setPage(0)
+  }
 
   if (objectLoading) {
     return <div className="text-gray-400">Loading object...</div>
@@ -85,7 +113,7 @@ export default function ObjectDetailPage() {
 
           <div>
             <div className="text-gray-400 text-sm">Images</div>
-            <div className="text-lg">{images?.length ?? 0}</div>
+            <div className="text-lg">{totalImages}</div>
           </div>
         </div>
 
@@ -114,11 +142,98 @@ export default function ObjectDetailPage() {
       )}
 
       <div className="card">
-        <h2 className="text-xl font-semibold mb-4">Images</h2>
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <h2 className="text-xl font-semibold">Images</h2>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">Sort by:</span>
+              <div className="flex gap-1">
+                {([
+                  { field: 'date_taken' as SortField, label: 'Date' },
+                  { field: 'exposure_time' as SortField, label: 'Exposure' },
+                  { field: 'filter_name' as SortField, label: 'Filter' },
+                ]).map(({ field, label }) => (
+                  <button
+                    key={field}
+                    onClick={() => handleSortChange(field)}
+                    className={`px-2 py-1 text-sm rounded ${
+                      sortBy === field
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    {label}
+                    {sortBy === field && (
+                      <span className="ml-1">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">Per page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                className="bg-gray-700 text-white text-sm rounded px-2 py-1"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         {imagesLoading ? (
           <div className="text-gray-400">Loading images...</div>
         ) : (
           <ImageTable images={images || []} />
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-700">
+            <div className="text-sm text-gray-400">
+              Showing {page * pageSize + 1}-{Math.min((page + 1) * pageSize, totalImages)} of {totalImages}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage(0)}
+                disabled={page === 0}
+                className="px-2 py-1 text-sm bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600"
+              >
+                First
+              </button>
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="px-2 py-1 text-sm bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600"
+              >
+                Previous
+              </button>
+              <span className="text-sm text-gray-400">
+                Page {page + 1} of {totalPages}
+              </span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="px-2 py-1 text-sm bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600"
+              >
+                Next
+              </button>
+              <button
+                onClick={() => setPage(totalPages - 1)}
+                disabled={page >= totalPages - 1}
+                className="px-2 py-1 text-sm bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600"
+              >
+                Last
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -70,6 +70,8 @@ def list_images(
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
     ids: Optional[list[int]] = Query(None),
+    sort_by: Optional[str] = Query(None, description="Sort field: date_taken, exposure_time, filter_name"),
+    sort_order: Optional[str] = Query("desc", description="Sort order: asc or desc"),
     db: Session = Depends(get_db),
 ):
     """List images with optional filters."""
@@ -100,7 +102,17 @@ def list_images(
     if date_to:
         query = query.filter(Image.date_taken <= date_to)
 
-    query = query.order_by(Image.date_taken.desc().nullsfirst())
+    # Apply sorting
+    sort_columns = {
+        "date_taken": Image.date_taken,
+        "exposure_time": Image.exposure_time,
+        "filter_name": Image.filter_name,
+    }
+    sort_column = sort_columns.get(sort_by, Image.date_taken)
+    if sort_order == "asc":
+        query = query.order_by(sort_column.asc().nullslast())
+    else:
+        query = query.order_by(sort_column.desc().nullsfirst())
 
     images = query.offset(skip).limit(limit).all()
 

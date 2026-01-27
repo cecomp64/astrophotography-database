@@ -173,6 +173,36 @@ export interface LocationConfig {
   elevation: number
 }
 
+export interface SavedLocation {
+  id: string
+  name: string
+  latitude: number
+  longitude: number
+  elevation: number
+  timezone: string
+}
+
+export interface SavedLocationCreate {
+  name: string
+  latitude: number
+  longitude: number
+  elevation: number
+  timezone: string
+}
+
+export interface SavedLocationUpdate {
+  name?: string
+  latitude?: number
+  longitude?: number
+  elevation?: number
+  timezone?: string
+}
+
+export interface LocationsConfig {
+  locations: SavedLocation[]
+  active_id: string | null
+}
+
 export interface TimezoneConfig {
   timezone: string
 }
@@ -252,6 +282,8 @@ export const imagesApi = {
     camera?: string
     date_from?: string
     date_to?: string
+    sort_by?: 'date_taken' | 'exposure_time' | 'filter_name'
+    sort_order?: 'asc' | 'desc'
   }) => {
     const response = await apiClient.get<Image[]>('/images', { params })
     return response.data
@@ -391,6 +423,36 @@ export const configApi = {
 
   updateLocation: async (location: Partial<LocationConfig>) => {
     const response = await apiClient.patch<LocationConfig>('/config/location/', location)
+    return response.data
+  },
+
+  // Multiple locations API
+  getLocations: async () => {
+    const response = await apiClient.get<LocationsConfig>('/config/locations/')
+    return response.data
+  },
+
+  getActiveLocation: async () => {
+    const response = await apiClient.get<SavedLocation | null>('/config/locations/active')
+    return response.data
+  },
+
+  addLocation: async (location: SavedLocationCreate) => {
+    const response = await apiClient.post<SavedLocation>('/config/locations/', location)
+    return response.data
+  },
+
+  updateSavedLocation: async (locationId: string, location: SavedLocationUpdate) => {
+    const response = await apiClient.put<SavedLocation>(`/config/locations/${locationId}`, location)
+    return response.data
+  },
+
+  deleteLocation: async (locationId: string) => {
+    await apiClient.delete(`/config/locations/${locationId}`)
+  },
+
+  setActiveLocation: async (locationId: string) => {
+    const response = await apiClient.put<LocationsConfig>(`/config/locations/${locationId}/active`)
     return response.data
   },
 

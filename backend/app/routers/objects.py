@@ -75,7 +75,7 @@ def list_objects(
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
             "aliases": obj.aliases,
-            "image_count": len(obj.images),
+            "image_count": len(obj.image_objects),
         }
         result.append(obj_dict)
 
@@ -105,7 +105,7 @@ def search_objects(
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
             "aliases": obj.aliases,
-            "image_count": len(obj.images),
+            "image_count": len(obj.image_objects),
         }
         result.append(obj_dict)
 
@@ -131,7 +131,7 @@ def get_object(object_id: int, db: Session = Depends(get_db)):
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "aliases": obj.aliases,
-        "image_count": len(obj.images),
+        "image_count": len(obj.image_objects),
     }
 
 
@@ -203,7 +203,7 @@ def update_object(object_id: int, obj_data: ObjectUpdate, db: Session = Depends(
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "aliases": obj.aliases,
-        "image_count": len(obj.images),
+        "image_count": len(obj.image_objects),
     }
 
 
@@ -247,7 +247,7 @@ def add_alias(object_id: int, alias_data: ObjectAliasCreate, db: Session = Depen
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "aliases": obj.aliases,
-        "image_count": len(obj.images),
+        "image_count": len(obj.image_objects),
     }
 
 
@@ -277,7 +277,7 @@ async def resolve_object(
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "aliases": obj.aliases,
-        "image_count": len(obj.images),
+        "image_count": len(obj.image_objects),
     }
 
 
@@ -300,21 +300,45 @@ def get_altitude_chart(
     if obj.ra is None or obj.dec is None:
         raise HTTPException(status_code=400, detail="Object has no coordinates")
 
-    # Get timezone configuration (default to UTC)
-    timezone_config = db.query(Configuration).filter(Configuration.key == "timezone").first()
+    # Get location configuration - first try multi-location config, then fall back to legacy
+    locations_config = db.query(Configuration).filter(Configuration.key == "locations").first()
+    latitude = None
+    longitude = None
+    elevation = 0
     tz_name = "UTC"
-    if timezone_config and timezone_config.value:
-        tz_name = timezone_config.value.get("timezone", "UTC")
 
+    if locations_config and locations_config.value:
+        locs = locations_config.value.get("locations", [])
+        active_id = locations_config.value.get("active_id")
+        if active_id and locs:
+            for loc in locs:
+                if loc.get("id") == active_id:
+                    latitude = loc.get("latitude")
+                    longitude = loc.get("longitude")
+                    elevation = loc.get("elevation", 0)
+                    tz_name = loc.get("timezone", "UTC")
+                    break
+
+    # Fall back to legacy single-location config and separate timezone config
+    if latitude is None:
+        legacy_config = db.query(Configuration).filter(Configuration.key == "location").first()
+        if legacy_config and legacy_config.value:
+            latitude = legacy_config.value.get("latitude")
+            longitude = legacy_config.value.get("longitude")
+            elevation = legacy_config.value.get("elevation", 0)
+        # Use legacy timezone config for legacy location
+        timezone_config = db.query(Configuration).filter(Configuration.key == "timezone").first()
+        if timezone_config and timezone_config.value:
+            tz_name = timezone_config.value.get("timezone", "UTC")
+
+    # Parse timezone
     try:
         local_tz = ZoneInfo(tz_name)
     except KeyError:
         local_tz = ZoneInfo("UTC")
         tz_name = "UTC"
 
-    # Get location configuration
-    location_config = db.query(Configuration).filter(Configuration.key == "location").first()
-    if not location_config:
+    if latitude is None or longitude is None:
         return AltitudeChartResponse(
             object_name=obj.primary_name,
             date=str(chart_date or date.today()),
@@ -326,11 +350,6 @@ def get_altitude_chart(
             rise_time=None,
             set_time=None,
         )
-
-    loc = location_config.value
-    latitude = loc.get("latitude", 0)
-    longitude = loc.get("longitude", 0)
-    elevation = loc.get("elevation", 0)
 
     # Create location and sky coordinate
     observer_location = EarthLocation(lat=latitude * u.deg, lon=longitude * u.deg, height=elevation * u.m)
