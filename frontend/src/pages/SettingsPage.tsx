@@ -190,7 +190,7 @@ export default function SettingsPage() {
       )}
 
       <div className="card">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div>
             <h2 className="text-xl font-semibold">Observatory Locations</h2>
             <p className="text-gray-400 text-sm mt-1">
@@ -200,7 +200,7 @@ export default function SettingsPage() {
           {!showLocationForm && (
             <button
               onClick={() => setShowLocationForm(true)}
-              className="btn btn-primary"
+              className="btn btn-primary w-full sm:w-auto"
             >
               Add Location
             </button>
@@ -330,63 +330,66 @@ export default function SettingsPage() {
                 {locations.map((location) => (
                   <div
                     key={location.id}
-                    className={`flex items-center justify-between p-4 rounded-lg border ${
+                    className={`p-4 rounded-lg border ${
                       location.id === activeId
                         ? 'bg-blue-900/30 border-blue-600'
                         : 'bg-gray-800/30 border-gray-700'
                     }`}
                   >
-                    <div className="flex items-center gap-4">
-                      <button
-                        onClick={() => setActiveMutation.mutate(location.id)}
-                        disabled={setActiveMutation.isPending}
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          location.id === activeId
-                            ? 'border-blue-500 bg-blue-500'
-                            : 'border-gray-500 hover:border-blue-400'
-                        }`}
-                        title={location.id === activeId ? 'Active location' : 'Set as active'}
-                      >
-                        {location.id === activeId && (
-                          <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                      </button>
-                      <div>
-                        <div className="font-medium flex items-center gap-2">
-                          {location.name}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+                        <button
+                          onClick={() => setActiveMutation.mutate(location.id)}
+                          disabled={setActiveMutation.isPending}
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0 ${
+                            location.id === activeId
+                              ? 'border-blue-500 bg-blue-500'
+                              : 'border-gray-500 hover:border-blue-400'
+                          }`}
+                          title={location.id === activeId ? 'Active location' : 'Set as active'}
+                        >
                           {location.id === activeId && (
-                            <span className="text-xs px-2 py-0.5 bg-blue-600 rounded text-white">
-                              Active
-                            </span>
+                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
                           )}
-                        </div>
-                        <div className="text-sm text-gray-400">
-                          {location.latitude.toFixed(4)}°, {location.longitude.toFixed(4)}°
-                          {location.elevation > 0 && ` • ${location.elevation}m`}
-                          {' • '}{getTimezoneLabel(location.timezone)}
+                        </button>
+                        <div className="min-w-0">
+                          <div className="font-medium flex flex-wrap items-center gap-2">
+                            <span className="truncate">{location.name}</span>
+                            {location.id === activeId && (
+                              <span className="text-xs px-2 py-0.5 bg-blue-600 rounded text-white flex-shrink-0">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-400">
+                            {location.latitude.toFixed(4)}°, {location.longitude.toFixed(4)}°
+                            {location.elevation > 0 && ` • ${location.elevation}m`}
+                            <span className="hidden sm:inline">{' • '}{getTimezoneLabel(location.timezone)}</span>
+                            <span className="block sm:hidden text-xs mt-1">{getTimezoneLabel(location.timezone)}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleEditLocation(location)}
-                        className="btn btn-secondary btn-sm"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete location "${location.name}"?`)) {
-                            deleteLocationMutation.mutate(location.id)
-                          }
-                        }}
-                        disabled={deleteLocationMutation.isPending}
-                        className="btn btn-secondary btn-sm text-red-400 hover:text-red-300"
-                      >
-                        Delete
-                      </button>
+                      <div className="flex items-center gap-2 ml-8 sm:ml-0">
+                        <button
+                          onClick={() => handleEditLocation(location)}
+                          className="btn btn-secondary btn-sm flex-1 sm:flex-none"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete location "${location.name}"?`)) {
+                              deleteLocationMutation.mutate(location.id)
+                            }
+                          }}
+                          disabled={deleteLocationMutation.isPending}
+                          className="btn btn-secondary btn-sm text-red-400 hover:text-red-300 flex-1 sm:flex-none"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

@@ -234,18 +234,18 @@ export default function IndexerPage() {
       {result && (
         <div className="card">
           <h2 className="text-xl font-semibold mb-4">Indexing Results</h2>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 text-center">
             <div>
-              <div className="text-3xl font-bold text-green-400">{result.indexed}</div>
-              <div className="text-gray-400">Indexed</div>
+              <div className="text-2xl sm:text-3xl font-bold text-green-400">{result.indexed}</div>
+              <div className="text-gray-400 text-sm sm:text-base">Indexed</div>
             </div>
             <div>
-              <div className="text-3xl font-bold text-yellow-400">{result.skipped}</div>
-              <div className="text-gray-400">Skipped</div>
+              <div className="text-2xl sm:text-3xl font-bold text-yellow-400">{result.skipped}</div>
+              <div className="text-gray-400 text-sm sm:text-base">Skipped</div>
             </div>
             <div>
-              <div className="text-3xl font-bold text-red-400">{result.errors}</div>
-              <div className="text-gray-400">Errors</div>
+              <div className="text-2xl sm:text-3xl font-bold text-red-400">{result.errors}</div>
+              <div className="text-gray-400 text-sm sm:text-base">Errors</div>
             </div>
           </div>
         </div>

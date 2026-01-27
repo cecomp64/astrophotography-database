@@ -41,16 +41,16 @@ export default function ImagesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <h1 className="text-2xl font-bold">Images</h1>
         {stats && (
-          <span className="text-gray-400">
+          <span className="text-gray-400 text-sm sm:text-base">
             {stats.total_images} total images
           </span>
         )}
       </div>
 
-      <div className="flex flex-wrap gap-4 items-center">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 sm:items-center">
         <div className="flex rounded-lg overflow-hidden border border-space-600">
           <button
             onClick={() => setViewMode('grouped')}

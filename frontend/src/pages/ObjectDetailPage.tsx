@@ -143,15 +143,15 @@ export default function ObjectDetailPage() {
       )}
 
       <div className="card">
-        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
           <h2 className="text-xl font-semibold">Images</h2>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-400">Sort by:</span>
+              <span className="text-sm text-gray-400">Sort:</span>
               <div className="flex gap-1">
                 {([
                   { field: 'date_taken' as SortField, label: 'Date' },
-                  { field: 'exposure_time' as SortField, label: 'Exposure' },
+                  { field: 'exposure_time' as SortField, label: 'Exp' },
                   { field: 'filter_name' as SortField, label: 'Filter' },
                 ]).map(({ field, label }) => (
                   <button
@@ -199,15 +199,15 @@ export default function ObjectDetailPage() {
         </div>
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-700">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-700">
             <div className="text-sm text-gray-400">
               Showing {page * pageSize + 1}-{Math.min((page + 1) * pageSize, totalImages)} of {totalImages}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap justify-center items-center gap-2">
               <button
                 onClick={() => setPage(0)}
                 disabled={page === 0}
-                className="px-2 py-1 text-sm bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600"
+                className="px-2 py-1 text-sm bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600 hidden sm:inline-flex"
               >
                 First
               </button>
@@ -231,7 +231,7 @@ export default function ObjectDetailPage() {
               <button
                 onClick={() => setPage(totalPages - 1)}
                 disabled={page >= totalPages - 1}
-                className="px-2 py-1 text-sm bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600"
+                className="px-2 py-1 text-sm bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-600 hidden sm:inline-flex"
               >
                 Last
               </button>

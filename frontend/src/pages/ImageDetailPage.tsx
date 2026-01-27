@@ -61,7 +61,7 @@ export default function ImageDetailPage() {
             &larr; Back to Images
           </Link>
           <h1 className="text-2xl font-bold mt-2">{image.file_name}</h1>
-          <p className="text-gray-400 text-sm mt-1">{image.file_path}</p>
+          <p className="text-gray-400 text-sm mt-1 break-all">{image.file_path}</p>
         </div>
       </div>
 
@@ -227,9 +227,9 @@ export default function ImageDetailPage() {
       <div className="card">
         <h2 className="text-lg font-semibold mb-4">File Information</h2>
         <dl className="space-y-3">
-          <div className="flex justify-between">
+          <div>
             <dt className="text-gray-400">Directory</dt>
-            <dd className="text-sm font-mono">{image.directory_path}</dd>
+            <dd className="text-sm font-mono break-all mt-1">{image.directory_path}</dd>
           </div>
           <div className="flex justify-between">
             <dt className="text-gray-400">Created</dt>

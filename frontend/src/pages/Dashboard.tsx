@@ -33,7 +33,7 @@ export default function Dashboard() {
       {statsLoading ? (
         <div className="text-gray-400">Loading statistics...</div>
       ) : stats ? (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <div className="card">
             <div className="text-3xl font-bold text-blue-400">{stats.total_images}</div>
             <div className="text-gray-400">Total Images</div>

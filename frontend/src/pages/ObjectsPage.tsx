@@ -32,36 +32,38 @@ export default function ObjectsPage() {
         <h1 className="text-2xl font-bold">Astronomical Objects</h1>
       </div>
 
-      <div className="flex flex-wrap gap-4">
-        <div className="w-64">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4">
+        <div className="w-full sm:w-64">
           <SearchBar placeholder="Search objects..." />
         </div>
 
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="input"
-        >
-          <option value="">All Types</option>
-          {objectTypes.map((type) => (
-            <option key={type} value={type!}>
-              {type}
-            </option>
-          ))}
-        </select>
+        <div className="flex gap-3 sm:gap-4">
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="input flex-1 sm:flex-none"
+          >
+            <option value="">All Types</option>
+            {objectTypes.map((type) => (
+              <option key={type} value={type!}>
+                {type}
+              </option>
+            ))}
+          </select>
 
-        <select
-          value={constellationFilter}
-          onChange={(e) => setConstellationFilter(e.target.value)}
-          className="input"
-        >
-          <option value="">All Constellations</option>
-          {constellations.map((constellation) => (
-            <option key={constellation} value={constellation!}>
-              {constellation}
-            </option>
-          ))}
-        </select>
+          <select
+            value={constellationFilter}
+            onChange={(e) => setConstellationFilter(e.target.value)}
+            className="input flex-1 sm:flex-none"
+          >
+            <option value="">All Constellations</option>
+            {constellations.map((constellation) => (
+              <option key={constellation} value={constellation!}>
+                {constellation}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {isLoading ? (

@@ -83,10 +83,10 @@ export default function CataloguePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <h1 className="text-2xl font-bold">Catalogue Browser</h1>
         {catalogueData && (
-          <span className="text-gray-400">
+          <span className="text-gray-400 text-sm sm:text-base">
             {catalogueData.total.toLocaleString()} objects
           </span>
         )}
@@ -291,15 +291,15 @@ export default function CataloguePage() {
           </div>
 
           {totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-400">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-sm text-gray-400 text-center sm:text-left">
                 Showing {page * pageSize + 1} - {Math.min((page + 1) * pageSize, catalogueData.total)} of {catalogueData.total.toLocaleString()}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap justify-center gap-2">
                 <button
                   onClick={() => setPage(0)}
                   disabled={page === 0}
-                  className="btn btn-secondary"
+                  className="btn btn-secondary hidden sm:inline-flex"
                 >
                   First
                 </button>
@@ -310,7 +310,7 @@ export default function CataloguePage() {
                 >
                   Previous
                 </button>
-                <span className="px-4 py-2 text-gray-300">
+                <span className="px-4 py-2 text-gray-300 text-sm sm:text-base">
                   Page {page + 1} of {totalPages}
                 </span>
                 <button
@@ -323,7 +323,7 @@ export default function CataloguePage() {
                 <button
                   onClick={() => setPage(totalPages - 1)}
                   disabled={page >= totalPages - 1}
-                  className="btn btn-secondary"
+                  className="btn btn-secondary hidden sm:inline-flex"
                 >
                   Last
                 </button>
