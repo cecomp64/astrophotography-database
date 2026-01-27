@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { objectsApi, imagesApi } from '../api/client'
 import ImageTable from '../components/ImageTable'
 import AltitudeChart from '../components/AltitudeChart'
@@ -24,7 +24,7 @@ export default function ObjectDetailPage() {
     enabled: !isNaN(objectId),
   })
 
-  const { data: images, isLoading: imagesLoading } = useQuery({
+  const { data: images, isLoading: imagesLoading, isFetching } = useQuery({
     queryKey: ['objectImages', objectId, page, pageSize, sortBy, sortOrder],
     queryFn: () => imagesApi.list({
       object_id: objectId,
@@ -34,6 +34,7 @@ export default function ObjectDetailPage() {
       sort_order: sortOrder,
     }),
     enabled: !isNaN(objectId),
+    placeholderData: keepPreviousData,
   })
 
   const totalImages = object?.image_count ?? 0
@@ -189,11 +190,13 @@ export default function ObjectDetailPage() {
           </div>
         </div>
 
-        {imagesLoading ? (
-          <div className="text-gray-400">Loading images...</div>
-        ) : (
-          <ImageTable images={images || []} />
-        )}
+        <div className={isFetching && !imagesLoading ? 'opacity-50' : ''}>
+          {imagesLoading ? (
+            <div className="text-gray-400">Loading images...</div>
+          ) : (
+            <ImageTable images={images || []} />
+          )}
+        </div>
 
         {totalPages > 1 && (
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-700">
