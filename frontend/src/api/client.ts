@@ -7,6 +7,9 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  paramsSerializer: {
+    indexes: null,  // Serialize arrays as ids=1&ids=2 (FastAPI format) instead of ids[0]=1&ids[1]=2
+  },
 })
 
 // Types

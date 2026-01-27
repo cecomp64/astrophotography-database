@@ -77,6 +77,22 @@ class FitsExtractor:
         r"^([A-Za-z]{1,3}\s?\d{1,5})[-_]",
     ]
 
+    # Solar system objects - recognized from folder names at any depth
+    SOLAR_SYSTEM_OBJECTS = {
+        # Planets
+        "mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune",
+        # Dwarf planets
+        "pluto", "ceres", "eris", "makemake", "haumea",
+        # Major moons
+        "moon", "luna",  # Earth's moon
+        "io", "europa", "ganymede", "callisto",  # Jupiter
+        "titan", "enceladus", "mimas", "rhea", "dione", "tethys", "iapetus",  # Saturn
+        "triton",  # Neptune
+        "charon",  # Pluto
+        # The Sun
+        "sun", "sol",
+    }
+
     def is_calibration_frame(self, file_path: str | Path) -> bool:
         """
         Check if a FITS file is a calibration frame (DARK, FLAT, BIAS).
@@ -412,16 +428,22 @@ class FitsExtractor:
         # This helps skip equipment names (like telescope names) in shallower directories
         parts = file_path.parts
 
-        # Check deeper directories first (reverse from the file backwards)
-        # Skip shallow directories which likely contain equipment names
+        # First pass: check ALL directories for solar system objects (any depth)
+        for i, part in enumerate(reversed(parts[:-1])):  # Exclude the filename
+            if part.lower() in self.SOLAR_SYSTEM_OBJECTS:
+                # Return with proper capitalization
+                return part.capitalize()
+
+        # Second pass: check deeper directories for catalog objects
+        # Skip shallow directories which likely contain equipment/date info
         found_objects = []
         for i, part in enumerate(reversed(parts[:-1])):  # Exclude the filename
             depth = i  # How many levels deep from the file
-            
+
             # Skip very shallow levels (0-2) which often contain equipment/date info
             if depth < 2:
                 continue
-            
+
             # Check if directory name looks like an object name
             for pattern in self.FILENAME_PATTERNS:
                 # Adjust pattern to match full directory name

@@ -16,9 +16,28 @@ class NameResolver:
 
     Resolution pipeline:
     1. Check local database (objects and aliases)
-    2. If not found, query Telescopius API
-    3. Store resolved object in database for future lookups
+    2. If solar system object, create directly without API lookup
+    3. If not found, query Telescopius API
+    4. Store resolved object in database for future lookups
     """
+
+    # Solar system objects - these don't have fixed coordinates and shouldn't use Telescopius
+    SOLAR_SYSTEM_OBJECTS = {
+        # Planets
+        "mercury": "Planet", "venus": "Planet", "mars": "Planet",
+        "jupiter": "Planet", "saturn": "Planet", "uranus": "Planet", "neptune": "Planet",
+        # Dwarf planets
+        "pluto": "Dwarf Planet", "ceres": "Dwarf Planet", "eris": "Dwarf Planet",
+        "makemake": "Dwarf Planet", "haumea": "Dwarf Planet",
+        # Major moons
+        "moon": "Moon", "luna": "Moon",
+        "io": "Moon", "europa": "Moon", "ganymede": "Moon", "callisto": "Moon",
+        "titan": "Moon", "enceladus": "Moon", "mimas": "Moon", "rhea": "Moon",
+        "dione": "Moon", "tethys": "Moon", "iapetus": "Moon",
+        "triton": "Moon", "charon": "Moon",
+        # The Sun
+        "sun": "Star", "sol": "Star",
+    }
 
     def __init__(self, db: Session, use_mock: bool = False):
         self.db = db
@@ -54,9 +73,15 @@ class NameResolver:
         if obj:
             return obj
 
+        # Check if this is a solar system object - create directly without API lookup
+        name_lower = name.lower().strip()
+        if name_lower in self.SOLAR_SYSTEM_OBJECTS:
+            logger.info(f"Creating solar system object: {name}")
+            obj = self._create_solar_system_object(name, self.SOLAR_SYSTEM_OBJECTS[name_lower])
+            return obj
+
         # Check if this lookup has already failed
         if normalized in self.failed_lookups:
-            logger = logging.getLogger(__name__)
             file_context = f" (file: {file_path})" if file_path else ""
             logger.debug(f"Previously failed lookup for '{name}'{file_context}, skipping Telescopius")
             return None
@@ -65,7 +90,6 @@ class NameResolver:
         try:
             # Check if client has a blocking search method
             if hasattr(self.client, 'search_object_sync'):
-                logger = logging.getLogger(__name__)
                 file_context = f" (file: {file_path})" if file_path else ""
                 logger.info(f"Looking up '{name}' in Telescopius{file_context}...")
                 telescopius_obj = self.client.search_object_sync(name)
@@ -80,7 +104,6 @@ class NameResolver:
                     # Remember this failed lookup
                     self.failed_lookups.add(normalized)
         except Exception as e:
-            logger = logging.getLogger(__name__)
             file_context = f" (file: {file_path})" if file_path else ""
             logger.error(f"Error resolving '{name}'{file_context} via Telescopius: {e}")
             # Remember this failed lookup
@@ -133,6 +156,31 @@ class NameResolver:
             return alias.object
 
         return None
+
+    def _create_solar_system_object(self, name: str, object_type: str) -> AstroObject:
+        """Create a solar system object directly without API lookup."""
+        # Capitalize properly
+        proper_name = name.capitalize()
+        if proper_name.lower() == "luna":
+            proper_name = "Moon"  # Normalize Luna to Moon
+        elif proper_name.lower() == "sol":
+            proper_name = "Sun"  # Normalize Sol to Sun
+
+        obj = AstroObject(
+            primary_name=proper_name,
+            object_type=object_type,
+            # Solar system objects don't have fixed coordinates
+            ra=None,
+            dec=None,
+            magnitude=None,
+            constellation=None,
+        )
+        self.db.add(obj)
+        self.db.commit()
+        self.db.refresh(obj)
+
+        logger.info(f"Created solar system object: {obj.primary_name} (ID: {obj.id}, type: {object_type})")
+        return obj
 
     def _create_from_telescopius(self, tobj: TelescopiusObject, original_query: str) -> AstroObject:
         """Create a database object from Telescopius response."""
