@@ -97,6 +97,11 @@ class FileIndexer:
         file_path = Path(file_path)
         logger.debug(f"Indexing file: {file_path}")
 
+        # Skip calibration frames (DARK, FLAT, BIAS)
+        if self.extractor.is_calibration_frame(file_path):
+            logger.debug(f"Skipping calibration frame: {file_path}")
+            return {"status": "skipped", "file": str(file_path), "reason": "calibration frame"}
+
         # Check if already indexed
         existing = self.db.query(Image).filter(Image.file_path == str(file_path)).first()
         if existing:
@@ -189,6 +194,10 @@ class FileIndexer:
         Index a single FITS file asynchronously with Telescopius lookup.
         """
         file_path = Path(file_path)
+
+        # Skip calibration frames (DARK, FLAT, BIAS)
+        if self.extractor.is_calibration_frame(file_path):
+            return {"status": "skipped", "file": str(file_path), "reason": "calibration frame"}
 
         # Check if already indexed
         existing = self.db.query(Image).filter(Image.file_path == str(file_path)).first()

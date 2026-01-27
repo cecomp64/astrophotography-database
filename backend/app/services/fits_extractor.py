@@ -53,6 +53,15 @@ class FitsExtractor:
     IMAGE_WIDTH_KEYWORDS = ["NAXIS1", "IMAGEW"]
     IMAGE_HEIGHT_KEYWORDS = ["NAXIS2", "IMAGEH"]
     FOCAL_LENGTH_KEYWORDS = ["FOCALLEN", "FOCAL", "FL"]
+    FRAME_TYPE_KEYWORDS = ["IMAGETYP", "FRAME", "FRAMETYPE", "IMAGECLASS"]
+
+    # Frame type values that indicate calibration frames (case-insensitive matching)
+    CALIBRATION_FRAME_TYPES = {
+        "dark", "dark frame", "darkframe",
+        "flat", "flat frame", "flatframe", "flat field", "flatfield",
+        "bias", "bias frame", "biasframe",
+        "offset", "offset frame",
+    }
 
     # Patterns for extracting object names from filenames
     FILENAME_PATTERNS = [
@@ -67,6 +76,33 @@ class FitsExtractor:
         # Generic pattern for catalog objects
         r"^([A-Za-z]{1,3}\s?\d{1,5})[-_]",
     ]
+
+    def is_calibration_frame(self, file_path: str | Path) -> bool:
+        """
+        Check if a FITS file is a calibration frame (DARK, FLAT, BIAS).
+
+        Returns True if the file is a calibration frame and should be skipped.
+        """
+        file_path = Path(file_path)
+
+        try:
+            with fits.open(file_path) as hdul:
+                header = hdul[0].header
+                frame_type = self._extract_string(header, self.FRAME_TYPE_KEYWORDS)
+
+                if frame_type and frame_type.lower() in self.CALIBRATION_FRAME_TYPES:
+                    return True
+        except Exception:
+            pass
+
+        # Also check filename for common calibration patterns
+        name_lower = file_path.stem.lower()
+        calibration_patterns = ["_dark", "_flat", "_bias", "_offset", "dark_", "flat_", "bias_", "offset_"]
+        for pattern in calibration_patterns:
+            if pattern in name_lower:
+                return True
+
+        return False
 
     def extract(self, file_path: str | Path) -> FitsMetadata:
         import math
