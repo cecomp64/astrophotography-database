@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { imagesApi, objectsApi } from '../api/client'
+import { imagesApi, objectsApi, catalogueApi } from '../api/client'
 import SearchBar from '../components/SearchBar'
 
 export default function Dashboard() {
@@ -12,6 +12,11 @@ export default function Dashboard() {
   const { data: recentObjects } = useQuery({
     queryKey: ['recentObjects'],
     queryFn: () => objectsApi.list({ limit: 5 }),
+  })
+
+  const { data: catalogues } = useQuery({
+    queryKey: ['catalogues'],
+    queryFn: catalogueApi.getCatalogs,
   })
 
   return (
@@ -34,8 +39,8 @@ export default function Dashboard() {
             <div className="text-gray-400">Total Images</div>
           </div>
           <div className="card">
-            <div className="text-3xl font-bold text-purple-400">{stats.total_objects}</div>
-            <div className="text-gray-400">Objects</div>
+            <div className="text-3xl font-bold text-purple-400">{stats.objects_imaged}</div>
+            <div className="text-gray-400">Objects Imaged</div>
           </div>
           <div className="card">
             <div className="text-3xl font-bold text-green-400">{stats.total_exposure_hours}</div>
@@ -43,22 +48,27 @@ export default function Dashboard() {
           </div>
           <div className="card">
             <div className="text-3xl font-bold text-yellow-400">
-              {Object.keys(stats.by_filter).length}
+              {catalogues ? Object.keys(catalogues).length : 0}
             </div>
-            <div className="text-gray-400">Filter Types</div>
+            <div className="text-gray-400">Catalogues Installed</div>
           </div>
         </div>
       ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {stats && Object.keys(stats.by_filter).length > 0 && (
+        {catalogues && Object.keys(catalogues).length > 0 && (
           <div className="card">
-            <h2 className="text-xl font-semibold mb-4">Images by Filter</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Installed Catalogues</h2>
+              <Link to="/catalogue" className="text-blue-400 hover:text-blue-300 text-sm">
+                Browse
+              </Link>
+            </div>
             <div className="space-y-2">
-              {Object.entries(stats.by_filter).map(([filter, count]) => (
-                <div key={filter} className="flex justify-between items-center">
-                  <span className="badge badge-purple">{filter}</span>
-                  <span className="text-gray-300">{count} images</span>
+              {Object.entries(catalogues).map(([catalog, count]) => (
+                <div key={catalog} className="flex justify-between items-center">
+                  <span className="badge badge-blue">{catalog}</span>
+                  <span className="text-gray-300">{count.toLocaleString()} objects</span>
                 </div>
               ))}
             </div>

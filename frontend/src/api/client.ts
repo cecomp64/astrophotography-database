@@ -80,6 +80,7 @@ export interface Image {
 export interface ImageStats {
   total_images: number
   total_objects: number
+  objects_imaged: number
   total_exposure_seconds: number
   total_exposure_hours: number
   by_filter: Record<string, number>

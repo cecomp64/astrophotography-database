@@ -125,6 +125,9 @@ def get_image_stats(db: Session = Depends(get_db)):
     total_images = db.query(func.count(Image.id)).scalar()
     total_objects = db.query(func.count(AstroObject.id)).scalar()
 
+    # Objects that have at least one image associated
+    objects_imaged = db.query(func.count(func.distinct(ImageObject.object_id))).scalar()
+
     # Images by filter
     filter_stats = (
         db.query(Image.filter_name, func.count(Image.id))
@@ -147,6 +150,7 @@ def get_image_stats(db: Session = Depends(get_db)):
     return {
         "total_images": total_images,
         "total_objects": total_objects,
+        "objects_imaged": objects_imaged,
         "total_exposure_seconds": total_exposure,
         "total_exposure_hours": round(total_exposure / 3600, 2),
         "by_filter": {f: c for f, c in filter_stats if f},
