@@ -66,7 +66,7 @@ class ProjectService:
         actual = {}
         total_frames = 0
         for row in exposure_by_filter:
-            filter_name = row.filter_name or "Unknown"
+            filter_name = row.filter_name or "No Filter"
             actual[filter_name] = float(row.total_exposure or 0)
             total_frames += row.frame_count
 
@@ -163,7 +163,7 @@ class ProjectService:
         actual = {}
         total_frames = 0
         for row in exposure_by_filter:
-            filter_name = row.filter_name or "Unknown"
+            filter_name = row.filter_name or "No Filter"
             actual[filter_name] = float(row.total_exposure or 0)
             total_frames += row.frame_count
 

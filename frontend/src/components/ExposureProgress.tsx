@@ -43,23 +43,16 @@ export default function ExposureProgress({
                 {filter}
               </span>
               <span className={`text-gray-400 ${compact ? 'text-xs' : 'text-sm'}`}>
-                {formatTime(actualVal)} / {formatTime(goal)}
+                {formatTime(actualVal)} / {formatTime(goal)} ({progress.toFixed(0)}%)
               </span>
             </div>
-            <div className="relative">
-              <div className={`bg-space-700 rounded-full overflow-hidden ${compact ? 'h-2' : 'h-3'}`}>
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    isComplete ? 'bg-green-500' : 'bg-blue-500'
-                  }`}
-                  style={{ width: `${Math.min(progress, 100)}%` }}
-                />
-              </div>
-              {!compact && (
-                <span className="absolute right-0 top-0 -mt-5 text-xs text-gray-400">
-                  {progress.toFixed(0)}%
-                </span>
-              )}
+            <div className={`bg-space-700 rounded-full overflow-hidden ${compact ? 'h-2' : 'h-3'}`}>
+              <div
+                className={`h-full rounded-full transition-all ${
+                  isComplete ? 'bg-green-500' : 'bg-blue-500'
+                }`}
+                style={{ width: `${Math.min(progress, 100)}%` }}
+              />
             </div>
           </div>
         )

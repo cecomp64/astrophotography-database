@@ -424,14 +424,6 @@ export default function ProjectDetailPage() {
     },
   })
 
-  const autoLinkMutation = useMutation({
-    mutationFn: () => projectsApi.autoLinkImages(projectId),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
-      alert(`Linked ${data.linked_images} image(s) to project`)
-    },
-  })
-
   const linkImagesMutation = useMutation({
     mutationFn: ({ objectId, group }: { objectId: number; group: ImageGroup }) =>
       projectsApi.linkImagesFromGroup(projectId, objectId, {
@@ -571,8 +563,8 @@ export default function ProjectDetailPage() {
                 key={target.id}
                 className="p-3 bg-space-700 rounded-lg"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Link
                       to={`/objects/${target.object_id}`}
                       className="font-medium hover:text-blue-400"
@@ -589,28 +581,28 @@ export default function ProjectDetailPage() {
                       <span className="text-sm text-gray-500">{target.constellation}</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                     <button
                       onClick={() => setEditingTarget(target)}
-                      className="text-sm text-blue-400 hover:text-blue-300"
+                      className="text-blue-400 hover:text-blue-300"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => setSelectedTargetId(target.object_id)}
-                      className="text-sm text-blue-400 hover:text-blue-300"
+                      className="text-blue-400 hover:text-blue-300"
                     >
                       Chart
                     </button>
                     <button
                       onClick={() => setLinkingTarget(target)}
-                      className="text-sm text-blue-400 hover:text-blue-300"
+                      className="text-blue-400 hover:text-blue-300"
                     >
-                      Link Images
+                      Link
                     </button>
                     <button
                       onClick={() => removeTargetMutation.mutate(target.object_id)}
-                      className="text-sm text-red-400 hover:text-red-300"
+                      className="text-red-400 hover:text-red-300"
                     >
                       Remove
                     </button>
@@ -789,14 +781,9 @@ export default function ProjectDetailPage() {
           </div>
         ) : (
           <div className="text-center py-8">
-            <p className="text-gray-500 mb-4">No images linked to this project yet</p>
-            <button
-              onClick={() => autoLinkMutation.mutate()}
-              disabled={autoLinkMutation.isPending || project.targets.length === 0}
-              className="btn btn-primary"
-            >
-              Auto-Link Images from Targets
-            </button>
+            <p className="text-gray-500 mb-4">No images linked to this project yet.  Add a target and 
+              exposure goals, then link images to get started.
+            </p>
           </div>
         )}
       </div>
