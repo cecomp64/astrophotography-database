@@ -7,6 +7,7 @@ interface LayoutProps {
 
 const navItems = [
   { path: '/', label: 'Dashboard' },
+  { path: '/projects', label: 'Projects' },
   { path: '/objects', label: 'Objects' },
   { path: '/images', label: 'Images' },
   { path: '/catalogue', label: 'Catalogue' },

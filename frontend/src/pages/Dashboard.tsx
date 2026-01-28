@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { imagesApi, objectsApi, catalogueApi } from '../api/client'
+import { imagesApi, objectsApi, catalogueApi, projectsApi } from '../api/client'
 import SearchBar from '../components/SearchBar'
+import { WellPlacedCard } from '../components/ProjectCard'
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -17,6 +18,11 @@ export default function Dashboard() {
   const { data: catalogues } = useQuery({
     queryKey: ['catalogues'],
     queryFn: catalogueApi.getCatalogs,
+  })
+
+  const { data: wellPlacedProjects } = useQuery({
+    queryKey: ['wellPlacedProjects'],
+    queryFn: () => projectsApi.getWellPlaced(5),
   })
 
   return (
@@ -54,6 +60,22 @@ export default function Dashboard() {
           </div>
         </div>
       ) : null}
+
+      {wellPlacedProjects && wellPlacedProjects.length > 0 && (
+        <div className="card">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Well-Placed Projects Tonight</h2>
+            <Link to="/projects" className="text-blue-400 hover:text-blue-300 text-sm">
+              View all
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {wellPlacedProjects.map((project) => (
+              <WellPlacedCard key={project.project_id} project={project} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {catalogues && Object.keys(catalogues).length > 0 && (

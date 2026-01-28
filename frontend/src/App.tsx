@@ -8,12 +8,16 @@ import ImageDetailPage from './pages/ImageDetailPage'
 import IndexerPage from './pages/IndexerPage'
 import CataloguePage from './pages/CataloguePage'
 import SettingsPage from './pages/SettingsPage'
+import ProjectsPage from './pages/ProjectsPage'
+import ProjectDetailPage from './pages/ProjectDetailPage'
 
 function App() {
   return (
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/projects" element={<ProjectsPage />} />
+        <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/objects" element={<ObjectsPage />} />
         <Route path="/objects/:id" element={<ObjectDetailPage />} />
         <Route path="/images" element={<ImagesPage />} />

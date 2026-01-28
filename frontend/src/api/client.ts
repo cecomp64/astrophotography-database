@@ -235,6 +235,104 @@ export interface Configuration {
   updated_at: string
 }
 
+// Project types
+export interface ProjectTarget {
+  id: number
+  project_id: number
+  object_id: number
+  object_name: string | null
+  object_type: string | null
+  ra: number | null
+  dec: number | null
+  constellation: string | null
+  is_primary: boolean
+  exposure_goals: Record<string, number> | null
+  notes: string | null
+  created_at: string
+}
+
+export interface ProjectImage {
+  id: number
+  project_id: number
+  image_id: number
+  file_name: string | null
+  filter_name: string | null
+  exposure_time: number | null
+  date_taken: string | null
+  added_manually: boolean
+}
+
+export interface ProjectProgress {
+  exposure_goals: Record<string, number>
+  actual_exposure: Record<string, number>
+  progress_percent: Record<string, number>
+  overall_progress: number
+  total_frames: number
+  total_exposure_seconds: number
+}
+
+export interface Project {
+  id: number
+  name: string
+  description: string | null
+  status: string
+  exposure_goals: Record<string, number> | null
+  priority: number
+  notes: string | null
+  created_at: string
+  updated_at: string
+  target_count: number
+  image_count: number
+  overall_progress: number | null
+}
+
+export interface ProjectDetail extends Project {
+  targets: ProjectTarget[]
+  images: ProjectImage[]
+  progress: ProjectProgress | null
+}
+
+export interface ProjectCreate {
+  name: string
+  description?: string | null
+  status?: string
+  exposure_goals?: Record<string, number> | null
+  priority?: number
+  notes?: string | null
+  target_object_ids?: number[]
+}
+
+export interface ProjectUpdate {
+  name?: string
+  description?: string | null
+  status?: string
+  exposure_goals?: Record<string, number> | null
+  priority?: number
+  notes?: string | null
+}
+
+export interface VisibilityInfo {
+  is_visible_tonight: boolean
+  current_altitude: number | null
+  max_altitude: number | null
+  transit_time: string | null
+  hours_above_min_altitude: number | null
+  rise_time: string | null
+  set_time: string | null
+}
+
+export interface WellPlacedProject {
+  project_id: number
+  project_name: string
+  project_status: string
+  primary_target_name: string
+  primary_target_id: number
+  visibility: VisibilityInfo
+  overall_progress: number
+  recommended_filter: string | null
+  score: number
+}
+
 // API functions
 export const objectsApi = {
   list: async (params?: { skip?: number; limit?: number; object_type?: string; constellation?: string }) => {
@@ -464,6 +562,89 @@ export const configApi = {
 
   setTimezone: async (timezone: TimezoneConfig) => {
     const response = await apiClient.put<TimezoneConfig>('/config/timezone/', timezone)
+    return response.data
+  },
+}
+
+export const projectsApi = {
+  list: async (params?: { skip?: number; limit?: number; status?: string }) => {
+    const response = await apiClient.get<Project[]>('/projects', { params })
+    return response.data
+  },
+
+  get: async (id: number) => {
+    const response = await apiClient.get<ProjectDetail>(`/projects/${id}`)
+    return response.data
+  },
+
+  create: async (data: ProjectCreate) => {
+    const response = await apiClient.post<Project>('/projects', data)
+    return response.data
+  },
+
+  update: async (id: number, data: ProjectUpdate) => {
+    const response = await apiClient.patch<Project>(`/projects/${id}`, data)
+    return response.data
+  },
+
+  delete: async (id: number) => {
+    await apiClient.delete(`/projects/${id}`)
+  },
+
+  // Target management
+  addTarget: async (projectId: number, objectId: number, isPrimary = false) => {
+    const response = await apiClient.post<ProjectDetail>(`/projects/${projectId}/targets`, {
+      object_id: objectId,
+      is_primary: isPrimary,
+    })
+    return response.data
+  },
+
+  updateTarget: async (projectId: number, objectId: number, data: { is_primary?: boolean; exposure_goals?: Record<string, number> | null; notes?: string | null }) => {
+    const response = await apiClient.patch<ProjectDetail>(`/projects/${projectId}/targets/${objectId}`, {
+      object_id: objectId,
+      ...data,
+    })
+    return response.data
+  },
+
+  removeTarget: async (projectId: number, objectId: number) => {
+    await apiClient.delete(`/projects/${projectId}/targets/${objectId}`)
+  },
+
+  // Image management
+  addImages: async (projectId: number, imageIds: number[]) => {
+    const response = await apiClient.post<ProjectDetail>(`/projects/${projectId}/images`, {
+      image_ids: imageIds,
+    })
+    return response.data
+  },
+
+  removeImage: async (projectId: number, imageId: number) => {
+    await apiClient.delete(`/projects/${projectId}/images/${imageId}`)
+  },
+
+  autoLinkImages: async (projectId: number) => {
+    const response = await apiClient.post<{ linked_images: number }>(`/projects/${projectId}/auto-link-images`)
+    return response.data
+  },
+
+  // Progress & Visibility
+  getProgress: async (id: number) => {
+    const response = await apiClient.get<ProjectProgress>(`/projects/${id}/progress`)
+    return response.data
+  },
+
+  getVisibility: async (id: number) => {
+    const response = await apiClient.get(`/projects/${id}/visibility`)
+    return response.data
+  },
+
+  // Dashboard
+  getWellPlaced: async (limit = 5) => {
+    const response = await apiClient.get<WellPlacedProject[]>('/projects/dashboard/well-placed', {
+      params: { limit },
+    })
     return response.data
   },
 }

@@ -42,6 +42,7 @@ class Image(Base):
     # Relationships
     object = relationship("AstroObject", back_populates="images")
     image_objects = relationship("ImageObject", back_populates="image", cascade="all, delete-orphan")
+    project_images = relationship("ProjectImage", back_populates="image", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_images_file_path", "file_path"),
