@@ -737,16 +737,6 @@ export default function ProjectDetailPage() {
 
       {/* Images */}
       <div className="card">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold">Images ({project.images.length})</h2>
-          <button
-            onClick={() => autoLinkMutation.mutate()}
-            disabled={autoLinkMutation.isPending}
-            className="btn btn-secondary text-sm"
-          >
-            {autoLinkMutation.isPending ? 'Linking...' : 'Auto-Link Images'}
-          </button>
-        </div>
 
         {project.images.length > 0 ? (
           <div className="overflow-x-auto">
