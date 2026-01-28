@@ -16,7 +16,7 @@ class ProjectService:
 
     def calculate_project_progress(self, project_id: int) -> Optional[dict]:
         """
-        Calculate exposure progress for a project.
+        Calculate exposure progress for a project by aggregating target-level goals.
 
         Returns:
             dict with exposure goals, actual exposure, and progress percentages
@@ -25,6 +25,16 @@ class ProjectService:
         if not project:
             return None
 
+        # Aggregate exposure goals from all targets
+        goals = {}
+        targets = self.db.query(ProjectTarget).filter(
+            ProjectTarget.project_id == project_id
+        ).all()
+        for target in targets:
+            if target.exposure_goals:
+                for filter_name, seconds in target.exposure_goals.items():
+                    goals[filter_name] = goals.get(filter_name, 0) + seconds
+
         # Get all image IDs associated with this project
         project_images = self.db.query(ProjectImage).filter(
             ProjectImage.project_id == project_id
@@ -32,7 +42,6 @@ class ProjectService:
         image_ids = [pi.image_id for pi in project_images]
 
         if not image_ids:
-            goals = project.exposure_goals or {}
             return {
                 "exposure_goals": goals,
                 "actual_exposure": {},
@@ -61,7 +70,102 @@ class ProjectService:
             actual[filter_name] = float(row.total_exposure or 0)
             total_frames += row.frame_count
 
-        goals = project.exposure_goals or {}
+        # Calculate progress percentages
+        progress = {}
+        for filter_name, goal in goals.items():
+            actual_val = actual.get(filter_name, 0)
+            progress[filter_name] = min(100.0, (actual_val / goal) * 100) if goal > 0 else 0
+
+        # Calculate overall progress (average of goal filters)
+        overall = sum(progress.values()) / len(progress) if progress else 0.0
+
+        return {
+            "exposure_goals": goals,
+            "actual_exposure": actual,
+            "progress_percent": {f: round(p, 1) for f, p in progress.items()},
+            "overall_progress": round(overall, 1),
+            "total_frames": total_frames,
+            "total_exposure_seconds": sum(actual.values()),
+        }
+
+    def calculate_target_progress(self, project_id: int, object_id: int) -> Optional[dict]:
+        """
+        Calculate exposure progress for a specific target within a project.
+
+        Args:
+            project_id: The project ID
+            object_id: The target object ID
+
+        Returns:
+            dict with exposure goals, actual exposure, and progress for this target
+        """
+        # Get the target
+        target = self.db.query(ProjectTarget).filter(
+            ProjectTarget.project_id == project_id,
+            ProjectTarget.object_id == object_id
+        ).first()
+
+        if not target:
+            return None
+
+        goals = target.exposure_goals or {}
+
+        # Find images in this project that have this object as primary target
+        project_image_ids = [
+            pi.image_id for pi in
+            self.db.query(ProjectImage.image_id).filter(
+                ProjectImage.project_id == project_id
+            ).all()
+        ]
+
+        if not project_image_ids:
+            return {
+                "exposure_goals": goals,
+                "actual_exposure": {},
+                "progress_percent": {f: 0.0 for f in goals},
+                "overall_progress": 0.0,
+                "total_frames": 0,
+                "total_exposure_seconds": 0.0,
+            }
+
+        # Get images that are in this project AND have this object as primary
+        target_image_ids = [
+            io.image_id for io in
+            self.db.query(ImageObject.image_id).filter(
+                ImageObject.image_id.in_(project_image_ids),
+                ImageObject.object_id == object_id,
+                ImageObject.association_type == "primary"
+            ).all()
+        ]
+
+        if not target_image_ids:
+            return {
+                "exposure_goals": goals,
+                "actual_exposure": {},
+                "progress_percent": {f: 0.0 for f in goals},
+                "overall_progress": 0.0,
+                "total_frames": 0,
+                "total_exposure_seconds": 0.0,
+            }
+
+        # Aggregate exposure by filter for this target's images
+        exposure_by_filter = (
+            self.db.query(
+                Image.filter_name,
+                func.sum(Image.exposure_time).label("total_exposure"),
+                func.count(Image.id).label("frame_count")
+            )
+            .filter(Image.id.in_(target_image_ids))
+            .group_by(Image.filter_name)
+            .all()
+        )
+
+        actual = {}
+        total_frames = 0
+        for row in exposure_by_filter:
+            filter_name = row.filter_name or "Unknown"
+            actual[filter_name] = float(row.total_exposure or 0)
+            total_frames += row.frame_count
 
         # Calculate progress percentages
         progress = {}

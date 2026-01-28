@@ -6,16 +6,14 @@ from app.database import Base
 
 
 class Project(Base):
-    """A project groups astronomical objects and images with exposure goals."""
+    """A project groups astronomical objects and images. Exposure goals are per-target."""
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     status = Column(String(50), nullable=False, default="active")  # active, completed, paused, archived
-    exposure_goals = Column(JSONB, nullable=True)  # {"L": 36000, "Ha": 72000, "OIII": 54000} in seconds
     priority = Column(Integer, nullable=False, default=0)  # Higher = more important
-    notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -29,15 +27,15 @@ class Project(Base):
 
 
 class ProjectTarget(Base):
-    """Association table for project targets (astronomical objects)."""
+    """Association table for project targets (astronomical objects) with per-target exposure goals."""
     __tablename__ = "project_targets"
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     object_id = Column(Integer, ForeignKey("objects.id", ondelete="CASCADE"), nullable=False)
     is_primary = Column(Boolean, nullable=False, default=False)  # Primary target for visibility calculations
-    exposure_goals = Column(JSONB, nullable=True)  # Optional per-target override
-    notes = Column(Text, nullable=True)
+    exposure_goals = Column(JSONB, nullable=True)  # {"L": 36000, "Ha": 72000} in seconds
+    notes = Column(Text, nullable=True)  # Per-target notes
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

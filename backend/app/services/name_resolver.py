@@ -246,17 +246,23 @@ class NameResolver:
     def fuzzy_search(self, query: str, limit: int = 10) -> list[AstroObject]:
         """
         Search for objects using fuzzy matching.
-        Uses PostgreSQL's trigram similarity if available.
+        Normalizes names by removing spaces, hyphens, and ignoring case.
+        Searches both primary names and aliases.
         """
-        normalized = f"%{query.lower()}%"
+        # Normalize query: lowercase, remove spaces and hyphens
+        normalized_query = f"%{self._normalize_name(query)}%"
 
-        # Search in both primary names and aliases
+        # Helper to normalize a column: lower(replace(replace(col, ' ', ''), '-', ''))
+        def normalize_col(col):
+            return func.lower(func.replace(func.replace(col, " ", ""), "-", ""))
+
+        # Search in both primary names and aliases using normalized comparison
         objects = self.db.query(AstroObject).filter(
             or_(
-                func.lower(AstroObject.primary_name).like(normalized),
+                normalize_col(AstroObject.primary_name).like(normalized_query),
                 AstroObject.id.in_(
                     self.db.query(ObjectAlias.object_id).filter(
-                        func.lower(ObjectAlias.alias_name).like(normalized)
+                        normalize_col(ObjectAlias.alias_name).like(normalized_query)
                     )
                 )
             )

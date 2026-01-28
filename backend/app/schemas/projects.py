@@ -8,12 +8,21 @@ from typing import Optional
 class ProjectTargetBase(BaseModel):
     object_id: int
     is_primary: bool = False
-    exposure_goals: Optional[dict[str, float]] = None  # Per-target override
-    notes: Optional[str] = None
+    exposure_goals: Optional[dict[str, float]] = None  # {"L": 36000, "Ha": 72000} in seconds
+    notes: Optional[str] = None  # Per-target notes
 
 
 class ProjectTargetCreate(ProjectTargetBase):
     pass
+
+
+class TargetProgressResponse(BaseModel):
+    exposure_goals: dict[str, float]
+    actual_exposure: dict[str, float]
+    progress_percent: dict[str, float]
+    overall_progress: float
+    total_frames: int
+    total_exposure_seconds: float
 
 
 class ProjectTargetResponse(ProjectTargetBase):
@@ -25,6 +34,7 @@ class ProjectTargetResponse(ProjectTargetBase):
     dec: Optional[float] = None
     constellation: Optional[str] = None
     created_at: datetime
+    progress: Optional[TargetProgressResponse] = None
 
     class Config:
         from_attributes = True
@@ -56,9 +66,7 @@ class ProjectBase(BaseModel):
     name: str
     description: Optional[str] = None
     status: str = "active"
-    exposure_goals: Optional[dict[str, float]] = None  # {"L": 36000, "Ha": 72000}
     priority: int = 0
-    notes: Optional[str] = None
 
 
 class ProjectCreate(ProjectBase):
@@ -69,9 +77,7 @@ class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
-    exposure_goals: Optional[dict[str, float]] = None
     priority: Optional[int] = None
-    notes: Optional[str] = None
 
 
 class ProjectResponse(ProjectBase):

@@ -249,6 +249,7 @@ export interface ProjectTarget {
   exposure_goals: Record<string, number> | null
   notes: string | null
   created_at: string
+  progress: ProjectProgress | null
 }
 
 export interface ProjectImage {
@@ -276,9 +277,7 @@ export interface Project {
   name: string
   description: string | null
   status: string
-  exposure_goals: Record<string, number> | null
   priority: number
-  notes: string | null
   created_at: string
   updated_at: string
   target_count: number
@@ -296,9 +295,7 @@ export interface ProjectCreate {
   name: string
   description?: string | null
   status?: string
-  exposure_goals?: Record<string, number> | null
   priority?: number
-  notes?: string | null
   target_object_ids?: number[]
 }
 
@@ -306,9 +303,7 @@ export interface ProjectUpdate {
   name?: string
   description?: string | null
   status?: string
-  exposure_goals?: Record<string, number> | null
   priority?: number
-  notes?: string | null
 }
 
 export interface VisibilityInfo {

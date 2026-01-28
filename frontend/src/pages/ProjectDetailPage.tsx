@@ -1,10 +1,200 @@
 import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { projectsApi, objectsApi, ProjectUpdate } from '../api/client'
+import { projectsApi, objectsApi, ProjectUpdate, ProjectTarget } from '../api/client'
 import ExposureProgress from '../components/ExposureProgress'
 import ProjectForm from '../components/ProjectForm'
 import AltitudeChart from '../components/AltitudeChart'
+
+const COMMON_FILTERS = ['L', 'R', 'G', 'B', 'Ha', 'OIII', 'SII']
+
+interface ExposureGoal {
+  filter: string
+  hours: number
+}
+
+function TargetEditModal({
+  target,
+  onSave,
+  onCancel,
+  isSubmitting,
+}: {
+  target: ProjectTarget
+  onSave: (data: { is_primary: boolean; exposure_goals: Record<string, number> | null; notes: string | null }) => void
+  onCancel: () => void
+  isSubmitting: boolean
+}) {
+  const [isPrimary, setIsPrimary] = useState(target.is_primary)
+  const [notes, setNotes] = useState(target.notes || '')
+
+  // Convert exposure goals from seconds to hours for display
+  const initialGoals: ExposureGoal[] = target.exposure_goals
+    ? Object.entries(target.exposure_goals).map(([filter, seconds]) => ({
+        filter,
+        hours: seconds / 3600,
+      }))
+    : []
+
+  const [exposureGoals, setExposureGoals] = useState<ExposureGoal[]>(initialGoals)
+  const [newFilter, setNewFilter] = useState('')
+
+  const handleAddFilter = () => {
+    if (newFilter && !exposureGoals.find((g) => g.filter === newFilter)) {
+      setExposureGoals([...exposureGoals, { filter: newFilter, hours: 1 }])
+      setNewFilter('')
+    }
+  }
+
+  const handleRemoveFilter = (filter: string) => {
+    setExposureGoals(exposureGoals.filter((g) => g.filter !== filter))
+  }
+
+  const handleGoalChange = (filter: string, hours: number) => {
+    setExposureGoals(
+      exposureGoals.map((g) => (g.filter === filter ? { ...g, hours } : g))
+    )
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // Convert hours back to seconds
+    const goalsInSeconds: Record<string, number> = {}
+    exposureGoals.forEach((g) => {
+      goalsInSeconds[g.filter] = g.hours * 3600
+    })
+
+    onSave({
+      is_primary: isPrimary,
+      exposure_goals: Object.keys(goalsInSeconds).length > 0 ? goalsInSeconds : null,
+      notes: notes || null,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-space-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Edit Target: {target.object_name}</h2>
+          <button onClick={onCancel} className="text-gray-400 hover:text-white">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="isPrimary"
+              checked={isPrimary}
+              onChange={(e) => setIsPrimary(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <label htmlFor="isPrimary" className="text-sm text-gray-300">
+              Primary target (used for visibility calculations)
+            </label>
+          </div>
+
+          {/* Exposure Goals */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Exposure Goals (hours per filter)
+            </label>
+
+            {exposureGoals.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {exposureGoals.map((goal) => (
+                  <div key={goal.filter} className="flex items-center gap-2">
+                    <span className="w-16 text-sm font-medium">{goal.filter}</span>
+                    <input
+                      type="number"
+                      value={goal.hours}
+                      onChange={(e) =>
+                        handleGoalChange(goal.filter, parseFloat(e.target.value) || 0)
+                      }
+                      className="input w-24"
+                      min={0}
+                      step={0.5}
+                    />
+                    <span className="text-sm text-gray-400">hours</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFilter(goal.filter)}
+                      className="text-red-400 hover:text-red-300 ml-auto"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <select
+                value={newFilter}
+                onChange={(e) => setNewFilter(e.target.value)}
+                className="input flex-1"
+              >
+                <option value="">Add filter...</option>
+                {COMMON_FILTERS.filter(
+                  (f) => !exposureGoals.find((g) => g.filter === f)
+                ).map((filter) => (
+                  <option key={filter} value={filter}>
+                    {filter}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleAddFilter}
+                disabled={!newFilter}
+                className="btn btn-secondary"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              Notes
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="input w-full"
+              rows={3}
+              placeholder="Notes about this target..."
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="btn btn-secondary"
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -16,6 +206,7 @@ export default function ProjectDetailPage() {
   const [showAddTarget, setShowAddTarget] = useState(false)
   const [targetSearch, setTargetSearch] = useState('')
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null)
+  const [editingTarget, setEditingTarget] = useState<ProjectTarget | null>(null)
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
@@ -56,6 +247,15 @@ export default function ProjectDetailPage() {
     },
   })
 
+  const updateTargetMutation = useMutation({
+    mutationFn: ({ objectId, data }: { objectId: number; data: { is_primary?: boolean; exposure_goals?: Record<string, number> | null; notes?: string | null } }) =>
+      projectsApi.updateTarget(projectId, objectId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      setEditingTarget(null)
+    },
+  })
+
   const removeTargetMutation = useMutation({
     mutationFn: (objectId: number) => projectsApi.removeTarget(projectId, objectId),
     onSuccess: () => {
@@ -92,6 +292,8 @@ export default function ProjectDetailPage() {
       </div>
     )
   }
+
+  const hasExposureGoals = project.progress && Object.keys(project.progress.exposure_goals).length > 0
 
   return (
     <div className="space-y-6">
@@ -158,10 +360,11 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* Exposure Progress */}
-      {project.progress && project.exposure_goals && Object.keys(project.exposure_goals).length > 0 && (
+      {/* Aggregated Exposure Progress */}
+      {hasExposureGoals && project.progress && (
         <div className="card">
-          <h2 className="text-xl font-semibold mb-4">Exposure Progress</h2>
+          <h2 className="text-xl font-semibold mb-2">Aggregated Exposure Progress</h2>
+          <p className="text-sm text-gray-500 mb-4">Combined goals from all targets</p>
           <ExposureProgress
             goals={project.progress.exposure_goals}
             actual={project.progress.actual_exposure}
@@ -191,39 +394,96 @@ export default function ProjectDetailPage() {
             {project.targets.map((target) => (
               <div
                 key={target.id}
-                className="flex items-center justify-between p-3 bg-space-700 rounded-lg"
+                className="p-3 bg-space-700 rounded-lg"
               >
-                <div className="flex items-center gap-3">
-                  <Link
-                    to={`/objects/${target.object_id}`}
-                    className="font-medium hover:text-blue-400"
-                  >
-                    {target.object_name}
-                  </Link>
-                  {target.is_primary && (
-                    <span className="badge badge-green text-xs">Primary</span>
-                  )}
-                  {target.object_type && (
-                    <span className="text-sm text-gray-400">{target.object_type}</span>
-                  )}
-                  {target.constellation && (
-                    <span className="text-sm text-gray-500">{target.constellation}</span>
-                  )}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <Link
+                      to={`/objects/${target.object_id}`}
+                      className="font-medium hover:text-blue-400"
+                    >
+                      {target.object_name}
+                    </Link>
+                    {target.is_primary && (
+                      <span className="badge badge-green text-xs">Primary</span>
+                    )}
+                    {target.object_type && (
+                      <span className="text-sm text-gray-400">{target.object_type}</span>
+                    )}
+                    {target.constellation && (
+                      <span className="text-sm text-gray-500">{target.constellation}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setEditingTarget(target)}
+                      className="text-sm text-blue-400 hover:text-blue-300"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setSelectedTargetId(target.object_id)}
+                      className="text-sm text-blue-400 hover:text-blue-300"
+                    >
+                      Chart
+                    </button>
+                    <button
+                      onClick={() => removeTargetMutation.mutate(target.object_id)}
+                      className="text-sm text-red-400 hover:text-red-300"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSelectedTargetId(target.object_id)}
-                    className="text-sm text-blue-400 hover:text-blue-300"
-                  >
-                    Chart
-                  </button>
-                  <button
-                    onClick={() => removeTargetMutation.mutate(target.object_id)}
-                    className="text-sm text-red-400 hover:text-red-300"
-                  >
-                    Remove
-                  </button>
-                </div>
+
+                {/* Per-target exposure progress */}
+                {target.progress && Object.keys(target.progress.exposure_goals).length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {Object.entries(target.progress.exposure_goals).map(([filter, goalSeconds]) => {
+                      const actualSeconds = target.progress!.actual_exposure[filter] || 0
+                      const percent = target.progress!.progress_percent[filter] || 0
+                      return (
+                        <div key={filter} className="space-y-1">
+                          <div className="flex justify-between text-xs">
+                            <span className="font-medium">{filter}</span>
+                            <span className="text-gray-400">
+                              {(actualSeconds / 3600).toFixed(1)}h / {(goalSeconds / 3600).toFixed(1)}h ({percent.toFixed(0)}%)
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-space-600 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                percent >= 100 ? 'bg-green-500' : 'bg-blue-500'
+                              }`}
+                              style={{ width: `${Math.min(percent, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                    <div className="text-xs text-gray-500 pt-1">
+                      {target.progress.total_frames} frames &bull; {(target.progress.total_exposure_seconds / 3600).toFixed(1)}h total &bull; {target.progress.overall_progress.toFixed(0)}% complete
+                    </div>
+                  </div>
+                )}
+
+                {/* Show goals without progress if no images yet */}
+                {(!target.progress || Object.keys(target.progress.exposure_goals).length === 0) &&
+                  target.exposure_goals && Object.keys(target.exposure_goals).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {Object.entries(target.exposure_goals).map(([filter, seconds]) => (
+                      <span key={filter} className="text-xs bg-space-600 px-2 py-1 rounded">
+                        {filter}: {(seconds / 3600).toFixed(1)}h goal
+                      </span>
+                    ))}
+                    <span className="text-xs text-gray-500">No images yet</span>
+                  </div>
+                )}
+
+                {/* Per-target notes */}
+                {target.notes && (
+                  <p className="mt-2 text-sm text-gray-400 italic">{target.notes}</p>
+                )}
               </div>
             ))}
           </div>
@@ -370,15 +630,7 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* Notes */}
-      {project.notes && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-2">Notes</h2>
-          <p className="text-gray-400 whitespace-pre-wrap">{project.notes}</p>
-        </div>
-      )}
-
-      {/* Edit Modal */}
+      {/* Edit Project Modal */}
       {showEditForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-space-800 rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -398,9 +650,7 @@ export default function ProjectDetailPage() {
                 name: project.name,
                 description: project.description,
                 status: project.status,
-                exposure_goals: project.exposure_goals,
                 priority: project.priority,
-                notes: project.notes,
               }}
               onSubmit={(data) => updateMutation.mutate(data as ProjectUpdate)}
               onCancel={() => setShowEditForm(false)}
@@ -409,6 +659,16 @@ export default function ProjectDetailPage() {
             />
           </div>
         </div>
+      )}
+
+      {/* Edit Target Modal */}
+      {editingTarget && (
+        <TargetEditModal
+          target={editingTarget}
+          onSave={(data) => updateTargetMutation.mutate({ objectId: editingTarget.object_id, data })}
+          onCancel={() => setEditingTarget(null)}
+          isSubmitting={updateTargetMutation.isPending}
+        />
       )}
     </div>
   )

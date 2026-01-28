@@ -33,9 +33,7 @@ def _project_to_response(project: Project, db: Session) -> dict:
         "name": project.name,
         "description": project.description,
         "status": project.status,
-        "exposure_goals": project.exposure_goals,
         "priority": project.priority,
-        "notes": project.notes,
         "created_at": project.created_at,
         "updated_at": project.updated_at,
         "target_count": len(project.project_targets),
@@ -49,10 +47,12 @@ def _project_to_detail_response(project: Project, db: Session) -> dict:
     project_service = ProjectService(db)
     progress = project_service.calculate_project_progress(project.id)
 
-    # Build targets list
+    # Build targets list with per-target progress
     targets = []
     for pt in project.project_targets:
         obj = pt.object
+        # Calculate progress for this specific target
+        target_progress = project_service.calculate_target_progress(project.id, pt.object_id)
         targets.append({
             "id": pt.id,
             "project_id": pt.project_id,
@@ -66,6 +66,7 @@ def _project_to_detail_response(project: Project, db: Session) -> dict:
             "exposure_goals": pt.exposure_goals,
             "notes": pt.notes,
             "created_at": pt.created_at,
+            "progress": target_progress,
         })
 
     # Build images list
@@ -88,9 +89,7 @@ def _project_to_detail_response(project: Project, db: Session) -> dict:
         "name": project.name,
         "description": project.description,
         "status": project.status,
-        "exposure_goals": project.exposure_goals,
         "priority": project.priority,
-        "notes": project.notes,
         "created_at": project.created_at,
         "updated_at": project.updated_at,
         "target_count": len(project.project_targets),
@@ -150,9 +149,7 @@ def create_project(project_data: ProjectCreate, db: Session = Depends(get_db)):
         name=project_data.name,
         description=project_data.description,
         status=project_data.status,
-        exposure_goals=project_data.exposure_goals,
         priority=project_data.priority,
-        notes=project_data.notes,
     )
     db.add(project)
     db.flush()
