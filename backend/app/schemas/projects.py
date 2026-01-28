@@ -137,3 +137,8 @@ class WellPlacedProjectResponse(BaseModel):
     overall_progress: float
     recommended_filter: Optional[str] = None
     score: float
+
+
+class WellPlacedProjectsListResponse(BaseModel):
+    location_configured: bool
+    projects: list[WellPlacedProjectResponse]

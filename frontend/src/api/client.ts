@@ -359,6 +359,11 @@ export interface WellPlacedProject {
   score: number
 }
 
+export interface WellPlacedProjectsResponse {
+  location_configured: boolean
+  projects: WellPlacedProject[]
+}
+
 // API functions
 export const objectsApi = {
   list: async (params?: { skip?: number; limit?: number; object_type?: string; constellation?: string }) => {
@@ -695,7 +700,7 @@ export const projectsApi = {
 
   // Dashboard
   getWellPlaced: async (limit = 5) => {
-    const response = await apiClient.get<WellPlacedProject[]>('/projects/dashboard/well-placed', {
+    const response = await apiClient.get<WellPlacedProjectsResponse>('/projects/dashboard/well-placed', {
       params: { limit },
     })
     return response.data

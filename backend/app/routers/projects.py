@@ -15,6 +15,7 @@ from app.schemas.projects import (
     ProjectImageResponse,
     ProjectProgressResponse,
     WellPlacedProjectResponse,
+    WellPlacedProjectsListResponse,
     LinkImagesFromGroupRequest,
 )
 from app.services import VisibilityService, ProjectService
@@ -104,7 +105,7 @@ def _project_to_detail_response(project: Project, db: Session) -> dict:
 
 # --- Dashboard Endpoint (must be before /{project_id} routes) ---
 
-@router.get("/dashboard/well-placed", response_model=List[WellPlacedProjectResponse])
+@router.get("/dashboard/well-placed", response_model=WellPlacedProjectsListResponse)
 def get_well_placed_projects(
     limit: int = Query(5, ge=1, le=20),
     db: Session = Depends(get_db),
@@ -119,7 +120,10 @@ def get_well_placed_projects(
         limit=limit,
     )
 
-    return results
+    return WellPlacedProjectsListResponse(
+        location_configured=visibility_service.location_configured,
+        projects=results,
+    )
 
 
 # --- CRUD Operations ---
