@@ -105,14 +105,14 @@ export function WellPlacedCard({ project }: WellPlacedCardProps) {
       </div>
 
       <div className="flex items-center gap-3 ml-4 flex-shrink-0">
-        {project.visibility.current_altitude !== null && (
+        {project.visibility.max_altitude !== null && (
           <span className="text-sm text-green-400 whitespace-nowrap">
-            {project.visibility.current_altitude.toFixed(0)}°
+            {project.visibility.max_altitude.toFixed(0)}°
           </span>
         )}
-        {project.visibility.hours_above_min_altitude !== null && (
+        {project.visibility.transit_time !== null && (
           <span className="text-sm text-blue-400 whitespace-nowrap">
-            {project.visibility.hours_above_min_altitude.toFixed(1)}h
+            {project.visibility.transit_time}
           </span>
         )}
         {project.recommended_filter && (
