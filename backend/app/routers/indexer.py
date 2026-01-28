@@ -9,8 +9,23 @@ from app.database import get_db, SessionLocal
 from app.services.indexer import FileIndexer
 from app.services.fov_matcher import FOVMatcher
 from app.services.catalogue_importer import CatalogueImporter
+from app.routers.files import detect_mount_structure, display_to_container_path
 
 router = APIRouter(prefix="/indexer", tags=["indexer"])
+
+
+def resolve_path(path: str) -> str:
+    """
+    Resolve a path to a container-accessible path.
+
+    Accepts either:
+    - Container paths (starting with /data) - used as-is
+    - Display paths (e.g., /Users/...) - translated to container path
+    """
+    if path.startswith("/data"):
+        return path
+    mount_info = detect_mount_structure()
+    return display_to_container_path(path, mount_info)
 
 
 def sse_event(data: dict, event: str = "progress") -> str:
@@ -43,10 +58,9 @@ def index_directory(
     - Store image records in the database
     - Optionally detect catalogue objects within each image's FOV
 
-    Note: Paths are relative to the host machine root and will be mounted at /data/host_mnt
+    Note: Accepts container paths (from file picker) or display paths (e.g., /Users/...)
     """
-    # Prepend /data/host_mnt to make paths absolute within container
-    directory = f"/data/host_mnt{request.directory}" if not request.directory.startswith("/data") else request.directory
+    directory = resolve_path(request.directory)
     indexer = FileIndexer(db, detect_fov_objects=detect_fov)
     result = indexer.index_directory(directory, recursive=request.recursive)
 
@@ -72,10 +86,9 @@ def index_file(
     Provide the full path to a FITS file to extract its metadata and add it to the database.
     Optionally detects catalogue objects within the image's FOV.
 
-    Note: Paths are relative to the host machine root and will be mounted at /data/host_mnt
+    Note: Accepts container paths (from file picker) or display paths (e.g., /Users/...)
     """
-    # Prepend /data/host_mnt to make paths absolute within container
-    file_path = f"/data/host_mnt{request.file_path}" if not request.file_path.startswith("/data") else request.file_path
+    file_path = resolve_path(request.file_path)
     indexer = FileIndexer(db, detect_fov_objects=detect_fov)
     result = indexer.index_file(file_path)
 
@@ -219,8 +232,7 @@ def index_directory_stream(
 
         db = SessionLocal()
         try:
-            # Prepend /data/host_mnt to make paths absolute within container
-            directory = f"/data/host_mnt{request.directory}" if not request.directory.startswith("/data") else request.directory
+            directory = resolve_path(request.directory)
             dir_path = Path(directory)
 
             if not dir_path.exists():

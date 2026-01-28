@@ -6,7 +6,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
-    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -19,10 +18,10 @@ COPY . .
 # Make entrypoint script executable
 RUN chmod +x entrypoint.sh
 
-# Create non-root user (but don't switch yet - entrypoint needs root for symlinks)
+# Create non-root user
 RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 
-# Entrypoint runs as root to create symlinks, then drops to appuser
 CMD ["./entrypoint.sh"]

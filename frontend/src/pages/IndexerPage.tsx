@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { indexerApi, IndexResult, CatalogueDownloadResult, CatalogueStats, API_BASE_URL } from '../api/client'
 import ProgressBar from '../components/ProgressBar'
+import FilePicker from '../components/FilePicker'
 
 interface ProgressState {
   status: 'idle' | 'running' | 'completed' | 'error'
@@ -23,7 +24,9 @@ const initialProgress: ProgressState = {
 }
 
 export default function IndexerPage() {
-  const [directory, setDirectory] = useState('')
+  const [directory, setDirectory] = useState('')  // Container path for API
+  const [displayPath, setDisplayPath] = useState('')  // User-friendly display path
+  const [isFilePickerOpen, setIsFilePickerOpen] = useState(false)
   const [recursive, setRecursive] = useState(true)
   const [detectFov, setDetectFov] = useState(true)
   const [result, setResult] = useState<IndexResult | null>(null)
@@ -302,16 +305,26 @@ export default function IndexerPage() {
           <form onSubmit={handleIndex} className="space-y-4">
             <div>
               <label className="block text-sm text-gray-400 mb-1">Directory Path</label>
-              <input
-                type="text"
-                value={directory}
-                onChange={(e) => setDirectory(e.target.value)}
-                placeholder="/path/to/fits/files"
-                className="input w-full"
-                disabled={isLoading}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={displayPath}
+                  readOnly
+                  placeholder="Click Browse to select a directory"
+                  className="input flex-1 bg-space-900 cursor-pointer"
+                  onClick={() => !isLoading && setIsFilePickerOpen(true)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsFilePickerOpen(true)}
+                  disabled={isLoading}
+                  className="btn btn-secondary whitespace-nowrap"
+                >
+                  Browse...
+                </button>
+              </div>
               <p className="text-xs text-gray-500 mt-1">
-                Enter the full path to a directory containing FITS files
+                Select a directory containing FITS files
               </p>
             </div>
 
@@ -549,6 +562,18 @@ export default function IndexerPage() {
           </p>
         </div>
       )}
+
+      <FilePicker
+        mode="directory"
+        isOpen={isFilePickerOpen}
+        onSelect={(path, display) => {
+          setDirectory(path)
+          setDisplayPath(display)
+          setIsFilePickerOpen(false)
+        }}
+        onCancel={() => setIsFilePickerOpen(false)}
+        initialPath={directory || undefined}
+      />
     </div>
   )
 }

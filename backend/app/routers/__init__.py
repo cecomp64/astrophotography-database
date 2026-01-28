@@ -4,6 +4,7 @@ from app.routers.indexer import router as indexer_router
 from app.routers.catalogue import router as catalogue_router
 from app.routers.configuration import router as configuration_router
 from app.routers.projects import router as projects_router
+from app.routers.files import router as files_router
 
 __all__ = [
     "objects_router",
@@ -12,4 +13,5 @@ __all__ = [
     "catalogue_router",
     "configuration_router",
     "projects_router",
+    "files_router",
 ]

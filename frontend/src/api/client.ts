@@ -115,6 +115,37 @@ export interface IndexResult {
   detect_fov_enabled?: boolean
 }
 
+// File browser types
+export interface FileEntry {
+  name: string
+  type: 'file' | 'directory'
+  path: string  // Container path (for API calls)
+  display_path: string  // User-friendly path
+  size: number | null
+  modified: string | null
+}
+
+export interface RootEntry {
+  name: string
+  path: string
+  display_path: string
+  icon: string
+}
+
+export interface BrowseResponse {
+  current_path: string
+  current_display_path: string
+  parent_path: string | null
+  parent_display_path: string | null
+  entries: FileEntry[]
+  platform: string
+}
+
+export interface RootsResponse {
+  roots: RootEntry[]
+  platform: string
+}
+
 export interface CatalogueImportResult {
   imported: number
   skipped: number
@@ -407,6 +438,21 @@ export const imagesApi = {
     const response = await apiClient.get<Image[]>('/images', {
       params: { ids, limit: ids.length }
     })
+    return response.data
+  },
+}
+
+export const filesApi = {
+  getRoots: async () => {
+    const response = await apiClient.get<RootsResponse>('/files/roots')
+    return response.data
+  },
+
+  browse: async (path?: string, displayPath?: string) => {
+    const params: Record<string, string> = {}
+    if (path) params.path = path
+    if (displayPath) params.display_path = displayPath
+    const response = await apiClient.get<BrowseResponse>('/files/browse', { params })
     return response.data
   },
 }
