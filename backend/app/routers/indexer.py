@@ -1,14 +1,21 @@
+import json
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Generator
 
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.services.indexer import FileIndexer
 from app.services.fov_matcher import FOVMatcher
 from app.services.catalogue_importer import CatalogueImporter
 
 router = APIRouter(prefix="/indexer", tags=["indexer"])
+
+
+def sse_event(data: dict, event: str = "progress") -> str:
+    """Format data as Server-Sent Event."""
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
 class IndexDirectoryRequest(BaseModel):
@@ -192,3 +199,216 @@ def detect_fov_objects_batch(
         "status": "completed",
         **results
     }
+
+
+# ==================== SSE Progress Streaming Endpoints ====================
+
+
+@router.post("/directory/stream")
+def index_directory_stream(
+    request: IndexDirectoryRequest,
+    detect_fov: bool = Query(default=True, description="Detect objects within FOV after indexing"),
+):
+    """
+    Index all FITS files with real-time progress streaming via SSE.
+
+    Returns Server-Sent Events with progress updates.
+    """
+    def generate_progress() -> Generator[str, None, None]:
+        from pathlib import Path
+
+        db = SessionLocal()
+        try:
+            # Prepend /data/host_mnt to make paths absolute within container
+            directory = f"/data/host_mnt{request.directory}" if not request.directory.startswith("/data") else request.directory
+            dir_path = Path(directory)
+
+            if not dir_path.exists():
+                yield sse_event({"status": "error", "message": f"Directory not found: {request.directory}"}, "error")
+                return
+
+            # First, count total files to index
+            pattern = "**/*" if request.recursive else "*"
+            fits_extensions = {".fits", ".fit", ".fts"}
+
+            files_to_index = []
+            for file_path in dir_path.glob(pattern):
+                if not file_path.is_file():
+                    continue
+                name_lower = file_path.name.lower()
+                if any(name_lower.endswith(ext) or name_lower.endswith(f"{ext}.gz") for ext in fits_extensions):
+                    files_to_index.append(file_path)
+
+            total_files = len(files_to_index)
+
+            yield sse_event({
+                "status": "started",
+                "phase": "scanning",
+                "total": total_files,
+                "current": 0,
+                "message": f"Found {total_files} FITS files to process"
+            })
+
+            if total_files == 0:
+                yield sse_event({
+                    "status": "completed",
+                    "indexed": 0,
+                    "skipped": 0,
+                    "errors": 0,
+                    "message": "No FITS files found"
+                }, "complete")
+                return
+
+            indexer = FileIndexer(db, detect_fov_objects=detect_fov)
+            stats = {"indexed": 0, "skipped": 0, "errors": 0}
+
+            for i, file_path in enumerate(files_to_index):
+                result = indexer.index_file(file_path)
+
+                if result["status"] == "indexed":
+                    stats["indexed"] += 1
+                elif result["status"] == "skipped":
+                    stats["skipped"] += 1
+                else:
+                    stats["errors"] += 1
+
+                # Send progress update every file
+                yield sse_event({
+                    "status": "indexing",
+                    "phase": "indexing",
+                    "current": i + 1,
+                    "total": total_files,
+                    "percent": round((i + 1) / total_files * 100, 1),
+                    "current_file": file_path.name,
+                    "indexed": stats["indexed"],
+                    "skipped": stats["skipped"],
+                    "errors": stats["errors"]
+                })
+
+            # Final result
+            yield sse_event({
+                "status": "completed",
+                "indexed": stats["indexed"],
+                "skipped": stats["skipped"],
+                "errors": stats["errors"],
+                "directory": request.directory,
+                "detect_fov_enabled": detect_fov
+            }, "complete")
+
+        except Exception as e:
+            yield sse_event({"status": "error", "message": str(e)}, "error")
+        finally:
+            db.close()
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.post("/download-catalogues/stream")
+def download_catalogues_stream(
+    catalogs: list[str] = Query(default=["openngc", "ldn", "lbn"]),
+):
+    """
+    Download and import catalogues with real-time progress streaming via SSE.
+
+    Returns Server-Sent Events with progress updates.
+    """
+    def generate_progress() -> Generator[str, None, None]:
+        db = SessionLocal()
+        try:
+            # Handle "all" option
+            catalog_list = catalogs
+            if "all" in catalog_list:
+                catalog_list = ["openngc", "ldn", "lbn"]
+
+            total_catalogs = len(catalog_list)
+            results = {"catalogues": {}, "errors": []}
+
+            yield sse_event({
+                "status": "started",
+                "phase": "downloading",
+                "total": total_catalogs,
+                "current": 0,
+                "message": f"Preparing to download {total_catalogs} catalogue(s)"
+            })
+
+            importer = CatalogueImporter(db)
+
+            for i, catalog in enumerate(catalog_list):
+                # Send "downloading" event
+                yield sse_event({
+                    "status": "downloading",
+                    "phase": "downloading",
+                    "current": i,
+                    "total": total_catalogs,
+                    "percent": round(i / total_catalogs * 100, 1),
+                    "current_catalog": catalog,
+                    "message": f"Downloading {catalog.upper()}..."
+                })
+
+                try:
+                    if catalog == "openngc":
+                        result = importer.download_and_import_openngc()
+                        results["catalogues"]["openngc"] = result
+                    elif catalog == "ldn":
+                        result = importer.download_and_import_ldn()
+                        results["catalogues"]["ldn"] = result
+                    elif catalog == "lbn":
+                        result = importer.download_and_import_lbn()
+                        results["catalogues"]["lbn"] = result
+                    else:
+                        results["errors"].append(f"Unknown catalogue: {catalog}")
+                        continue
+
+                    # Send progress after each catalogue
+                    yield sse_event({
+                        "status": "importing",
+                        "phase": "importing",
+                        "current": i + 1,
+                        "total": total_catalogs,
+                        "percent": round((i + 1) / total_catalogs * 100, 1),
+                        "current_catalog": catalog,
+                        "imported": result.get("imported", 0),
+                        "message": f"Imported {result.get('imported', 0)} objects from {catalog.upper()}"
+                    })
+
+                except Exception as e:
+                    results["errors"].append(f"{catalog}: {str(e)}")
+                    yield sse_event({
+                        "status": "error",
+                        "phase": "importing",
+                        "current": i + 1,
+                        "total": total_catalogs,
+                        "current_catalog": catalog,
+                        "message": f"Error importing {catalog}: {str(e)}"
+                    })
+
+            # Get final stats
+            results["stats"] = importer.get_catalogue_stats()
+
+            yield sse_event({
+                "status": "completed",
+                **results
+            }, "complete")
+
+        except Exception as e:
+            yield sse_event({"status": "error", "message": str(e)}, "error")
+        finally:
+            db.close()
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
