@@ -624,6 +624,18 @@ export const projectsApi = {
     return response.data
   },
 
+  linkImagesFromGroup: async (
+    projectId: number,
+    objectId: number,
+    group: { date: string; target_name: string | null; telescope: string | null }
+  ) => {
+    const response = await apiClient.post<{ linked_images: number }>(
+      `/projects/${projectId}/targets/${objectId}/link-images`,
+      group
+    )
+    return response.data
+  },
+
   // Progress & Visibility
   getProgress: async (id: number) => {
     const response = await apiClient.get<ProjectProgress>(`/projects/${id}/progress`)

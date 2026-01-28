@@ -46,6 +46,12 @@ class ProjectImageAdd(BaseModel):
     image_ids: list[int]
 
 
+class LinkImagesFromGroupRequest(BaseModel):
+    date: str  # YYYY-MM-DD from the grouping
+    target_name: Optional[str] = None
+    telescope: Optional[str] = None
+
+
 class ProjectImageResponse(BaseModel):
     id: int
     project_id: int

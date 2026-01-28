@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { projectsApi, objectsApi, ProjectUpdate, ProjectTarget } from '../api/client'
+import { projectsApi, objectsApi, imagesApi, ProjectUpdate, ProjectTarget, ImageGroup } from '../api/client'
 import ExposureProgress from '../components/ExposureProgress'
 import ProjectForm from '../components/ProjectForm'
 import AltitudeChart from '../components/AltitudeChart'
 
-const COMMON_FILTERS = ['L', 'R', 'G', 'B', 'Ha', 'OIII', 'SII']
+const COMMON_FILTERS = ['L', 'R', 'G', 'B', 'Ha', 'OIII', 'SII', 'No Filter']
 
 interface ExposureGoal {
   filter: string
@@ -196,6 +196,160 @@ function TargetEditModal({
   )
 }
 
+function LinkImagesModal({
+  target,
+  imageGroups,
+  onLink,
+  onCancel,
+  isLinking,
+}: {
+  target: ProjectTarget
+  imageGroups: ImageGroup[]
+  onLink: (group: ImageGroup) => void
+  onCancel: () => void
+  isLinking: boolean
+}) {
+  const [search, setSearch] = useState('')
+
+  // Get allowed filters from target's exposure goals
+  const allowedFilters = target.exposure_goals ? Object.keys(target.exposure_goals) : null
+
+  // Filter groups by search text only - let backend handle filter matching
+  const filteredGroups = imageGroups.filter((group) => {
+    if (search) {
+      const searchLower = search.toLowerCase()
+      if (!group.target_name?.toLowerCase().includes(searchLower)) {
+        return false
+      }
+    }
+    return true
+  })
+
+  // Helper to check if a group has any matching filters
+  // "No Filter" in allowedFilters matches subs with filter_name = null
+  const getMatchingFilterCount = (group: ImageGroup) => {
+    if (!allowedFilters || allowedFilters.length === 0) return group.total_frames
+    const hasNoFilterGoal = allowedFilters.includes('No Filter')
+    return group.subs
+      .filter((s) => {
+        if (s.filter_name === null) return hasNoFilterGoal
+        return allowedFilters.includes(s.filter_name)
+      })
+      .reduce((sum, s) => sum + s.count, 0)
+  }
+
+  const formatExposure = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`
+    }
+    return `${minutes}m`
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-space-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">Link Images to {target.object_name}</h2>
+          <button onClick={onCancel} className="text-gray-400 hover:text-white">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {allowedFilters && allowedFilters.length > 0 && (
+          <p className="text-sm text-gray-400 mb-3">
+            Only images with filters: {allowedFilters.join(', ')}
+          </p>
+        )}
+
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="input w-full mb-4"
+          placeholder="Search by target name..."
+          autoFocus
+        />
+
+        <div className="flex-1 overflow-y-auto space-y-2">
+          {filteredGroups.length > 0 ? (
+            filteredGroups.map((group) => {
+              const key = `${group.date}-${group.target_name}-${group.telescope}`
+              const matchingCount = getMatchingFilterCount(group)
+              const hasNoMatchingFilters = allowedFilters && allowedFilters.length > 0 && matchingCount === 0
+
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onLink(group)}
+                  disabled={isLinking}
+                  className={`w-full p-3 bg-space-700 rounded-lg hover:bg-space-600 text-left transition-colors disabled:opacity-50 ${
+                    hasNoMatchingFilters ? 'opacity-60' : ''
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <span className="font-medium">{group.target_name || 'Unknown Target'}</span>
+                      <span className="text-gray-400 mx-2">|</span>
+                      <span className="text-gray-400">{group.date}</span>
+                      {group.telescope && (
+                        <>
+                          <span className="text-gray-500 mx-2">|</span>
+                          <span className="text-gray-500 text-sm">{group.telescope}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm text-gray-400">
+                        {group.total_frames} frames &bull; {formatExposure(group.total_exposure_seconds)}
+                      </span>
+                      {hasNoMatchingFilters && (
+                        <div className="text-xs text-yellow-500">No matching filters</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {group.subs.map((sub, i) => {
+                      const isMatching = !allowedFilters ||
+                        (sub.filter_name === null ? allowedFilters.includes('No Filter') : allowedFilters.includes(sub.filter_name))
+                      return (
+                        <span
+                          key={i}
+                          className={`text-xs px-2 py-0.5 rounded ${
+                            isMatching
+                              ? 'bg-blue-500/30 text-blue-300'
+                              : 'bg-space-600 text-gray-500'
+                          }`}
+                        >
+                          {sub.filter_name || 'No filter'}: {sub.count}x{sub.exposure_time}s
+                        </span>
+                      )
+                    })}
+                  </div>
+                </button>
+              )
+            })
+          ) : (
+            <p className="text-gray-500 text-center py-8">
+              {search ? 'No matching image groups found' : 'No image groups available'}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-space-600">
+          <button onClick={onCancel} className="btn btn-secondary">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const projectId = parseInt(id!, 10)
@@ -207,6 +361,7 @@ export default function ProjectDetailPage() {
   const [targetSearch, setTargetSearch] = useState('')
   const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null)
   const [editingTarget, setEditingTarget] = useState<ProjectTarget | null>(null)
+  const [linkingTarget, setLinkingTarget] = useState<ProjectTarget | null>(null)
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
@@ -218,6 +373,12 @@ export default function ProjectDetailPage() {
     queryKey: ['objectSearch', targetSearch],
     queryFn: () => objectsApi.search(targetSearch, 10),
     enabled: targetSearch.length >= 2,
+  })
+
+  const { data: imageGroups } = useQuery({
+    queryKey: ['imageGroups'],
+    queryFn: () => imagesApi.getGrouped(),
+    enabled: linkingTarget !== null,
   })
 
   const updateMutation = useMutation({
@@ -267,6 +428,20 @@ export default function ProjectDetailPage() {
     mutationFn: () => projectsApi.autoLinkImages(projectId),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      alert(`Linked ${data.linked_images} image(s) to project`)
+    },
+  })
+
+  const linkImagesMutation = useMutation({
+    mutationFn: ({ objectId, group }: { objectId: number; group: ImageGroup }) =>
+      projectsApi.linkImagesFromGroup(projectId, objectId, {
+        date: group.date,
+        target_name: group.target_name,
+        telescope: group.telescope,
+      }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      setLinkingTarget(null)
       alert(`Linked ${data.linked_images} image(s) to project`)
     },
   })
@@ -426,6 +601,12 @@ export default function ProjectDetailPage() {
                       className="text-sm text-blue-400 hover:text-blue-300"
                     >
                       Chart
+                    </button>
+                    <button
+                      onClick={() => setLinkingTarget(target)}
+                      className="text-sm text-blue-400 hover:text-blue-300"
+                    >
+                      Link Images
                     </button>
                     <button
                       onClick={() => removeTargetMutation.mutate(target.object_id)}
@@ -668,6 +849,17 @@ export default function ProjectDetailPage() {
           onSave={(data) => updateTargetMutation.mutate({ objectId: editingTarget.object_id, data })}
           onCancel={() => setEditingTarget(null)}
           isSubmitting={updateTargetMutation.isPending}
+        />
+      )}
+
+      {/* Link Images Modal */}
+      {linkingTarget && imageGroups && (
+        <LinkImagesModal
+          target={linkingTarget}
+          imageGroups={imageGroups}
+          onLink={(group) => linkImagesMutation.mutate({ objectId: linkingTarget.object_id, group })}
+          onCancel={() => setLinkingTarget(null)}
+          isLinking={linkImagesMutation.isPending}
         />
       )}
     </div>

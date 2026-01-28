@@ -15,6 +15,7 @@ from app.schemas.projects import (
     ProjectImageResponse,
     ProjectProgressResponse,
     WellPlacedProjectResponse,
+    LinkImagesFromGroupRequest,
 )
 from app.services import VisibilityService, ProjectService
 
@@ -373,6 +374,92 @@ def auto_link_images(project_id: int, db: Session = Depends(get_db)):
     count = project_service.auto_link_images(project_id)
 
     return {"linked_images": count}
+
+
+@router.post("/{project_id}/targets/{object_id}/link-images")
+def link_images_from_group(
+    project_id: int,
+    object_id: int,
+    request: LinkImagesFromGroupRequest,
+    db: Session = Depends(get_db),
+):
+    """Link images from a specific grouping to a project, filtered by target's exposure goals."""
+    # Verify project exists
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get the target to retrieve its exposure_goals
+    target = db.query(ProjectTarget).filter(
+        ProjectTarget.project_id == project_id,
+        ProjectTarget.object_id == object_id,
+    ).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target not found in project")
+
+    # Get allowed filters from exposure_goals (if any)
+    allowed_filters = set(target.exposure_goals.keys()) if target.exposure_goals else None
+
+    # Build query for images matching the grouping
+    from sqlalchemy import func
+    query = db.query(Image)
+
+    # Filter by date (extract date portion from date_taken)
+    if request.date and request.date != "Unknown":
+        query = query.filter(func.date(Image.date_taken) == request.date)
+
+    # Filter by target name (via object relationship)
+    if request.target_name:
+        query = query.join(Image.object).filter(
+            AstroObject.primary_name == request.target_name
+        )
+    else:
+        query = query.filter(Image.object_id.is_(None))
+
+    # Filter by telescope
+    if request.telescope:
+        query = query.filter(Image.telescope == request.telescope)
+    else:
+        query = query.filter(
+            (Image.telescope.is_(None)) | (Image.telescope == "Unknown")
+        )
+
+    images = query.all()
+
+    # Link images, filtering by allowed filters and excluding duplicates
+    # "No Filter" in exposure_goals matches images with filter_name = null
+    has_no_filter_goal = allowed_filters and "No Filter" in allowed_filters
+    linked_count = 0
+    for img in images:
+        # Filter by allowed filters if exposure_goals are set
+        if allowed_filters:
+            if img.filter_name is None:
+                # Image has no filter - only allow if "No Filter" goal exists
+                if not has_no_filter_goal:
+                    continue
+            elif img.filter_name not in allowed_filters:
+                continue
+
+        # Check if already linked
+        existing = db.query(ProjectImage).filter(
+            ProjectImage.project_id == project_id,
+            ProjectImage.image_id == img.id,
+        ).first()
+        if existing:
+            continue
+
+        # Create link
+        project_image = ProjectImage(
+            project_id=project_id,
+            image_id=img.id,
+            added_manually=False,
+        )
+        db.add(project_image)
+        linked_count += 1
+
+    db.commit()
+
+    return {"linked_images": linked_count}
 
 
 # --- Progress & Visibility ---
