@@ -16,12 +16,24 @@ from app.models import AstroObject, ObjectAlias, Image, ImageObject
 from app.models.configuration import Configuration
 from app.schemas import ObjectResponse, ObjectCreate, ObjectUpdate, ObjectAliasCreate
 from app.services.name_resolver import NameResolver
+from app.services.visibility_service import VisibilityService
 
 
 class AltitudeDataPoint(BaseModel):
     time: str
     altitude: float
     azimuth: float
+
+
+class TwilightTimes(BaseModel):
+    sunset: Optional[str] = None
+    civil_dusk: Optional[str] = None
+    nautical_dusk: Optional[str] = None
+    astronomical_dusk: Optional[str] = None
+    astronomical_dawn: Optional[str] = None
+    nautical_dawn: Optional[str] = None
+    civil_dawn: Optional[str] = None
+    sunrise: Optional[str] = None
 
 
 class AltitudeChartResponse(BaseModel):
@@ -34,6 +46,7 @@ class AltitudeChartResponse(BaseModel):
     transit_altitude: Optional[float]
     rise_time: Optional[str]
     set_time: Optional[str]
+    twilight: Optional[TwilightTimes] = None
 
 router = APIRouter(prefix="/objects", tags=["objects"])
 
@@ -407,6 +420,22 @@ def get_altitude_chart(
             azimuth=round(float(azimuths[i]), 2),
         ))
 
+    # Calculate twilight times
+    visibility_service = VisibilityService(db)
+    twilight_data = visibility_service.calculate_twilight_times(target_date)
+    twilight = None
+    if twilight_data:
+        twilight = TwilightTimes(
+            sunset=twilight_data.get('sunset'),
+            civil_dusk=twilight_data.get('civil_dusk'),
+            nautical_dusk=twilight_data.get('nautical_dusk'),
+            astronomical_dusk=twilight_data.get('astronomical_dusk'),
+            astronomical_dawn=twilight_data.get('astronomical_dawn'),
+            nautical_dawn=twilight_data.get('nautical_dawn'),
+            civil_dawn=twilight_data.get('civil_dawn'),
+            sunrise=twilight_data.get('sunrise'),
+        )
+
     return AltitudeChartResponse(
         object_name=obj.primary_name,
         date=str(target_date),
@@ -417,4 +446,5 @@ def get_altitude_chart(
         transit_altitude=round(transit_altitude, 2) if transit_altitude else None,
         rise_time=rise_time,
         set_time=set_time,
+        twilight=twilight,
     )

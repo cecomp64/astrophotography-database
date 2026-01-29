@@ -123,6 +123,7 @@ class VisibilityInfo(BaseModel):
     max_altitude: Optional[float] = None
     transit_time: Optional[str] = None
     hours_above_min_altitude: Optional[float] = None
+    hours_in_darkness: Optional[float] = None
     rise_time: Optional[str] = None
     set_time: Optional[str] = None
 

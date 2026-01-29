@@ -338,6 +338,7 @@ class ProjectService:
                     "max_altitude": visibility.get("max_altitude"),
                     "transit_time": visibility.get("transit_time"),
                     "hours_above_min_altitude": visibility.get("hours_above_min_altitude"),
+                    "hours_in_darkness": visibility.get("hours_in_darkness"),
                     "rise_time": visibility.get("rise_time"),
                     "set_time": visibility.get("set_time"),
                 },

@@ -64,9 +64,9 @@ export default function ProjectCard({ project, visibility, recommendedFilter }: 
               {visibility.current_altitude.toFixed(0)}° alt
             </span>
           )}
-          {visibility.hours_above_min_altitude !== null && (
+          {visibility.hours_in_darkness !== null && (
             <span className="text-sm text-blue-400">
-              {visibility.hours_above_min_altitude.toFixed(1)}h tonight
+              {visibility.hours_in_darkness.toFixed(1)}h dark
             </span>
           )}
           {recommendedFilter && (

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
-  AreaChart,
+  ComposedChart,
   Area,
   XAxis,
   YAxis,
@@ -9,12 +9,83 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
+  Bar,
 } from 'recharts'
-import { objectsApi, AltitudeDataPoint } from '../api/client'
+import { objectsApi, AltitudeDataPoint, TwilightTimes } from '../api/client'
 
 interface AltitudeChartProps {
   objectId: number
   date?: string
+}
+
+// Twilight phases with their display properties (no "night" - astronomical is the darkest)
+const TWILIGHT_PHASES = {
+  day: { color: '#fbbf24', label: 'Day', opacity: 0.15 },
+  civil: { color: '#f97316', label: 'Civil', opacity: 0.25 },
+  nautical: { color: '#3b82f6', label: 'Nautical', opacity: 0.35 },
+  astronomical: { color: '#1e3a5f', label: 'Astro', opacity: 0.5 },
+} as const
+
+type TwilightPhase = keyof typeof TWILIGHT_PHASES
+
+// Convert time string "HH:MM" to minutes since midnight
+function timeToMinutes(timeStr: string): number {
+  const [h, m] = timeStr.split(':').map(Number)
+  return h * 60 + m
+}
+
+// Determine twilight phase for a given data point
+// The chart spans from noon (12:00) to noon next day, centered on midnight
+// Index 0 = 12:00 (noon), Index 72 = 00:00 (midnight), Index 144 = 12:00 (noon next day)
+function getTwilightPhase(
+  timeStr: string,
+  twilight: TwilightTimes,
+  dataIndex: number,
+  totalPoints: number
+): TwilightPhase {
+  const time = timeToMinutes(timeStr)
+
+  // Get twilight times as minutes
+  const sunset = twilight.sunset ? timeToMinutes(twilight.sunset) : null
+  const civilDusk = twilight.civil_dusk ? timeToMinutes(twilight.civil_dusk) : null
+  const nauticalDusk = twilight.nautical_dusk ? timeToMinutes(twilight.nautical_dusk) : null
+  const astroDusk = twilight.astronomical_dusk ? timeToMinutes(twilight.astronomical_dusk) : null
+  const astroDawn = twilight.astronomical_dawn ? timeToMinutes(twilight.astronomical_dawn) : null
+  const nauticalDawn = twilight.nautical_dawn ? timeToMinutes(twilight.nautical_dawn) : null
+  const civilDawn = twilight.civil_dawn ? timeToMinutes(twilight.civil_dawn) : null
+  const sunrise = twilight.sunrise ? timeToMinutes(twilight.sunrise) : null
+
+  // Determine if we're in the evening portion (before midnight) or morning portion (after midnight)
+  // Evening: index 0-72 (12:00 to 00:00), times go from 720 to 1440 then wrap
+  // Morning: index 72-144 (00:00 to 12:00), times go from 0 to 720
+  const midpointIndex = Math.floor(totalPoints / 2)
+  const isEvening = dataIndex < midpointIndex
+
+  if (isEvening) {
+    // Evening: times range from ~720 (12:00) to ~1439 (23:59)
+    // Compare against evening twilight times (sunset, civil dusk, etc.)
+    if (sunset !== null && time < sunset) return 'day'
+    if (civilDusk !== null && time < civilDusk) return 'civil'
+    if (nauticalDusk !== null && time < nauticalDusk) return 'nautical'
+    if (astroDusk !== null && time < astroDusk) return 'astronomical'
+    // After astronomical dusk, it's still astronomical (darkest)
+    return 'astronomical'
+  } else {
+    // Morning: times range from 0 (00:00) to ~720 (12:00)
+    // Compare against morning twilight times (dawn, sunrise, etc.)
+    if (astroDawn !== null && time < astroDawn) return 'astronomical'
+    if (nauticalDawn !== null && time < nauticalDawn) return 'nautical'
+    if (civilDawn !== null && time < civilDawn) return 'civil'
+    if (sunrise !== null && time < sunrise) return 'civil'
+    return 'day'
+  }
+}
+
+interface ChartDataPoint extends AltitudeDataPoint {
+  altitudeAboveHorizon: number
+  altitudeBelowHorizon: number
+  twilightPhase: TwilightPhase
+  twilightFill: number // Fixed value for background bar height
 }
 
 export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
@@ -58,19 +129,26 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
     )
   }
 
-  // Filter data to show primarily the nighttime hours (evening to morning)
-  // and prepare for charting
-  const chartData = data.data.map((point: AltitudeDataPoint) => ({
-    ...point,
-    // For area chart, we want to fill above horizon only
-    altitudeAboveHorizon: point.altitude > 0 ? point.altitude : 0,
-    altitudeBelowHorizon: point.altitude < 0 ? point.altitude : 0,
-  }))
+  // Build chart data with twilight phase for each point
+  const chartData: ChartDataPoint[] = data.data.map((point: AltitudeDataPoint, index: number) => {
+    const twilightPhase = data.twilight
+      ? getTwilightPhase(point.time, data.twilight, index, data.data.length)
+      : 'day'
+
+    return {
+      ...point,
+      altitudeAboveHorizon: point.altitude > 0 ? point.altitude : 0,
+      altitudeBelowHorizon: point.altitude < 0 ? point.altitude : 0,
+      twilightPhase,
+      twilightFill: 90, // Bar from 0 to 90 (will be positioned at y=-90)
+    }
+  })
 
   // Custom tooltip
-  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: AltitudeDataPoint }> }) => {
+  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartDataPoint }> }) => {
     if (active && payload && payload.length) {
       const point = payload[0].payload
+      const phaseInfo = TWILIGHT_PHASES[point.twilightPhase]
       return (
         <div className="bg-space-800 border border-space-600 rounded px-3 py-2 shadow-lg">
           <p className="text-white font-medium">{point.time}</p>
@@ -80,19 +158,46 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
             </span>
           </p>
           <p className="text-gray-300">Azimuth: {point.azimuth.toFixed(1)}°</p>
+          <p className="text-gray-400 text-sm mt-1">
+            Sky: <span style={{ color: phaseInfo.color }}>{phaseInfo.label}</span>
+          </p>
         </div>
       )
     }
     return null
   }
 
+  // Custom bar shape to color each bar based on twilight phase
+  // Bars span from -90 to +90 (full chart height)
+  const TwilightBar = (props: { x?: number; width?: number; payload?: ChartDataPoint }) => {
+    const { x, width, payload } = props
+    if (!payload || x === undefined || width === undefined) {
+      return null
+    }
+    const phase = payload.twilightPhase
+    const { color, opacity } = TWILIGHT_PHASES[phase]
+
+    // Draw bar from bottom (-90) to top (90) of chart
+    // In recharts, we need to calculate pixel positions based on the y-axis scale
+    return (
+      <rect
+        x={x}
+        y={0}
+        width={width}
+        height="100%"
+        fill={color}
+        fillOpacity={opacity}
+      />
+    )
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-4 text-sm">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
         {data.transit_time && (
           <div>
             <span className="text-gray-400">Transit: </span>
-            <span className="text-white">{data.transit_time}</span>
+            <span className="text-yellow-300 font-medium">{data.transit_time}</span>
             {data.transit_altitude && (
               <span className="text-gray-400 ml-1">
                 ({data.transit_altitude.toFixed(1)}°)
@@ -114,9 +219,27 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
         )}
       </div>
 
+      {/* Twilight times */}
+      {data.twilight && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+          {data.twilight.astronomical_dusk && (
+            <div>
+              <span>Astro Dark: </span>
+              <span className="text-gray-400">{data.twilight.astronomical_dusk}</span>
+            </div>
+          )}
+          {data.twilight.astronomical_dawn && (
+            <div>
+              <span>Astro Dawn: </span>
+              <span className="text-gray-400">{data.twilight.astronomical_dawn}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
             <defs>
               <linearGradient id="altitudeGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#22c55e" stopOpacity={0.6} />
@@ -127,6 +250,13 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
                 <stop offset="100%" stopColor="#ef4444" stopOpacity={0.1} />
               </linearGradient>
             </defs>
+            {/* Twilight background bars - rendered first so they're behind everything */}
+            <Bar
+              dataKey="twilightFill"
+              shape={<TwilightBar />}
+              isAnimationActive={false}
+              yAxisId="twilight"
+            />
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
             <XAxis
               dataKey="time"
@@ -136,6 +266,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
               interval={11}
             />
             <YAxis
+              yAxisId="main"
               domain={[-90, 90]}
               ticks={[-90, -60, -30, 0, 30, 60, 90]}
               stroke="#9ca3af"
@@ -143,10 +274,17 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
               tickLine={{ stroke: '#6b7280' }}
               tickFormatter={(value) => `${value}°`}
             />
+            {/* Hidden Y axis for twilight bars */}
+            <YAxis
+              yAxisId="twilight"
+              domain={[0, 1]}
+              hide
+            />
             <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine y={0} stroke="#6b7280" strokeWidth={2} label={{ value: 'Horizon', fill: '#9ca3af', fontSize: 11 }} />
-            <ReferenceLine y={30} stroke="#4b5563" strokeDasharray="5 5" />
+            <ReferenceLine yAxisId="main" y={0} stroke="#6b7280" strokeWidth={2} label={{ value: 'Horizon', fill: '#9ca3af', fontSize: 11 }} />
+            <ReferenceLine yAxisId="main" y={30} stroke="#4b5563" strokeDasharray="5 5" />
             <Area
+              yAxisId="main"
               type="monotone"
               dataKey="altitudeAboveHorizon"
               stroke="#22c55e"
@@ -155,6 +293,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
               isAnimationActive={false}
             />
             <Area
+              yAxisId="main"
               type="monotone"
               dataKey="altitudeBelowHorizon"
               stroke="#ef4444"
@@ -163,6 +302,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
               isAnimationActive={false}
             />
             <Area
+              yAxisId="main"
               type="monotone"
               dataKey="altitude"
               stroke="#60a5fa"
@@ -170,9 +310,27 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
               fill="none"
               isAnimationActive={false}
             />
-          </AreaChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Twilight legend */}
+      {data.twilight && (
+        <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
+          {Object.entries(TWILIGHT_PHASES).map(([key, phase]) => (
+            <div key={key} className="flex items-center gap-1">
+              <div
+                className="w-3 h-3 rounded-sm"
+                style={{
+                  backgroundColor: phase.color,
+                  opacity: phase.opacity + 0.2
+                }}
+              />
+              <span className="text-gray-500">{phase.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <p className="text-xs text-gray-500 text-center">
         Date: {data.date} | Times in {data.timezone} | 24-hour period centered on midnight

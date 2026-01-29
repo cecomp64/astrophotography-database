@@ -245,6 +245,17 @@ export interface AltitudeDataPoint {
   azimuth: number
 }
 
+export interface TwilightTimes {
+  sunset: string | null
+  civil_dusk: string | null
+  nautical_dusk: string | null
+  astronomical_dusk: string | null
+  astronomical_dawn: string | null
+  nautical_dawn: string | null
+  civil_dawn: string | null
+  sunrise: string | null
+}
+
 export interface AltitudeChartData {
   object_name: string
   date: string
@@ -255,6 +266,7 @@ export interface AltitudeChartData {
   transit_altitude: number | null
   rise_time: string | null
   set_time: string | null
+  twilight: TwilightTimes | null
 }
 
 export interface Configuration {
@@ -343,6 +355,7 @@ export interface VisibilityInfo {
   max_altitude: number | null
   transit_time: string | null
   hours_above_min_altitude: number | null
+  hours_in_darkness: number | null
   rise_time: string | null
   set_time: string | null
 }

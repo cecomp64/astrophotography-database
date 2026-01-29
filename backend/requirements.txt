@@ -14,6 +14,8 @@ pydantic-settings==2.1.0
 
 # Astronomy
 astropy==6.0.0
+astroplan==0.10.1
+jplephem==2.22
 telescopius-api==1.0.0
 
 # HTTP client
