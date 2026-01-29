@@ -1,13 +1,24 @@
 {
-  "name": "astrophotography-frontend",
+  "name": "astrophotography-database",
   "private": true,
   "version": "1.0.0",
-  "type": "module",
+  "description": "A database application for managing astrophotography images and observations",
+  "author": "Astrophotography Database",
+  "main": "dist-main/electron-main.cjs",
+  "homepage": "./",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "tsc --project tsconfig.node.json",
+    "build:renderer": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron-dev": "npm run build:main && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron-build": "npm run build && electron-builder",
+    "electron-build-all": "npm run build && electron-builder -mwl",
+    "electron-build-mac": "npm run build && electron-builder --mac",
+    "electron-build-win": "npm run build && electron-builder --win",
+    "electron-build-linux": "npm run build && electron-builder --linux"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.17.0",
@@ -18,18 +29,59 @@
     "recharts": "^3.7.0"
   },
   "devDependencies": {
+    "@types/node": "^20.10.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
+    "concurrently": "^8.2.1",
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4",
     "eslint": "^8.55.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
     "postcss": "^8.4.32",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.2.2",
-    "vite": "^5.0.8"
+    "vite": "^5.0.8",
+    "wait-on": "^7.0.1"
+  },
+  "build": {
+    "appId": "com.astrophotography.database",
+    "productName": "Astrophotography Database",
+    "files": [
+      "dist/**/*",
+      "dist-main/**/*",
+      "node_modules/**/*"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility"
+    }
   }
 }

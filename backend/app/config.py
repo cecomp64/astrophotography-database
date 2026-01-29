@@ -1,9 +1,15 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
+from pathlib import Path
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/astrophotography"
+    # Use SQLite by default, but allow override via env var
+    database_url: str = os.getenv(
+        "DATABASE_URL",
+        f"sqlite:///{Path.home() / 'AppData' / 'Local' / 'astrophotography_db' / 'database.db' if os.name == 'nt' else Path.home() / '.config' / 'astrophotography_db' / 'database.db'}"
+    )
     telescopius_api_url: str = "https://telescopius.com/api"
     telescopius_api_key: str = ""
 
