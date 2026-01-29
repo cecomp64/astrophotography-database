@@ -187,6 +187,8 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
         height="100%"
         fill={color}
         fillOpacity={opacity}
+        stroke="none"      // Crucial: disables the SVG border
+        shapeRendering="crispEdges"  // Optional: force sharp edges to prevent sub-pixel gaps
       />
     )
   }
