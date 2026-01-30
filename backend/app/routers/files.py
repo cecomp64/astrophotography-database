@@ -10,7 +10,7 @@ from datetime import datetime
 router = APIRouter(prefix="/files", tags=["files"])
 
 # Base mount point where host filesystem is accessible
-DATA_MOUNT = Path("/data")
+DATA_MOUNT = Path("/")
 
 
 def detect_mount_structure() -> dict:
@@ -18,26 +18,11 @@ def detect_mount_structure() -> dict:
     Detect the host mount structure to determine path translation rules.
 
     Returns dict with:
-    - mount_prefix: The path prefix within /data that maps to host root
+    - mount_prefix: The path prefix
     - platform: Detected platform (macos, linux, windows, unknown)
     """
-    # Check for macOS Docker Desktop structure (uses host_mnt symlink)
-    host_mnt = DATA_MOUNT / "host_mnt"
-    if host_mnt.exists() and (host_mnt / "Users").exists():
-        return {"mount_prefix": "/data/host_mnt", "platform": "macos"}
-
-    # Check for Windows Docker Desktop (drive letters under host_mnt)
-    if host_mnt.exists():
-        for item in host_mnt.iterdir():
-            if item.is_dir() and len(item.name) == 1 and item.name.isalpha():
-                return {"mount_prefix": "/data/host_mnt", "platform": "windows"}
-
-    # Linux: /data directly maps to host root
-    if (DATA_MOUNT / "home").exists():
-        return {"mount_prefix": "/data", "platform": "linux"}
-
     # Fallback
-    return {"mount_prefix": "/data", "platform": "unknown"}
+    return {"mount_prefix": "", "platform": "macos"}
 
 
 def container_to_display_path(container_path: str, mount_info: dict) -> str:
