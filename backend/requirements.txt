@@ -5,7 +5,6 @@ python-multipart==0.0.6
 
 # Database
 sqlalchemy==2.0.25
-psycopg2-binary==2.9.9
 alembic==1.13.1
 
 # Data validation
@@ -23,3 +22,5 @@ httpx==0.26.0
 
 # Utilities
 python-dotenv==1.0.0
+
+pyinstaller

@@ -54,14 +54,14 @@ npm run electron-build-all
    - Handles file dialogs and system integrations
 
 2. **FastAPI Backend** (`backend/`)
-   - Runs on `http://localhost:8000`
+   - Runs on `http://localhost:8833`
    - Uses SQLite database stored in user's home directory:
      - macOS/Linux: `~/.config/astrophotography_db/database.db`
      - Windows: `%APPDATA%/Local/astrophotography_db/database.db`
 
 3. **React Frontend** (`frontend/src/`)
    - Communicates with backend via HTTP
-   - Automatically configured to connect to `localhost:8000`
+   - Automatically configured to connect to `localhost:8833`
 
 ## Installation File Locations
 
@@ -87,7 +87,7 @@ DATABASE_URL="sqlite:////custom/path/database.db" npm run electron-dev
 
 ### API Configuration
 
-The frontend is configured to use `http://localhost:8000` as the API base URL. This is set in [frontend/src/api/client.ts](frontend/src/api/client.ts).
+The frontend is configured to use `http://localhost:8833` as the API base URL. This is set in [frontend/src/api/client.ts](frontend/src/api/client.ts).
 
 ## Troubleshooting
 

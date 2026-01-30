@@ -35,8 +35,8 @@ A web application for indexing and exploring astrophotography FITS files. Extrac
 
 4. Access the application:
    - Frontend: http://localhost:3000
-   - API: http://localhost:8000
-   - API Docs: http://localhost:8000/docs
+   - API: http://localhost:8833
+   - API Docs: http://localhost:8833/docs
 
 5. Use the Indexer page to scan your FITS directories by providing the path
 

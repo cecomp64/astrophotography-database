@@ -35,7 +35,7 @@ const startBackend = async () => {
     if (isDev) {
       // Development: Run FastAPI directly with Python
       const pythonPath = process.env.PYTHON_PATH || "python3";
-      apiProcess = spawn(pythonPath, ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+      apiProcess = spawn(pythonPath, ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8833"], {
         cwd: path.join(__dirname, "../backend"),
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -58,7 +58,7 @@ const startBackend = async () => {
         process.platform === "win32" ? "api.exe" : "api"
       );
 
-      apiProcess = spawn(executablePath, ["--host", "127.0.0.1", "--port", "8000"], {
+      apiProcess = spawn(executablePath, ["--host", "127.0.0.1", "--port", "8833"], {
         stdio: ["ignore", "pipe", "pipe"],
       });
 

@@ -56,6 +56,26 @@
       "dist-main/**/*",
       "node_modules/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/api",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../backend/alembic",
+        "to": "backend/alembic",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../backend/alembic.ini",
+        "to": "backend/alembic.ini"
+      }
+    ],
     "directories": {
       "buildResources": "assets"
     },

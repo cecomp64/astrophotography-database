@@ -48,3 +48,5 @@ logs/
 
 frontend/dist/
 frontend/dist-main/
+
+backend/build/

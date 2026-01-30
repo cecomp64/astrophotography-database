@@ -1,22 +1,25 @@
-from pydantic_settings import BaseSettings
-from functools import lru_cache
 import os
+from pydantic_settings import BaseSettings
 from pathlib import Path
 
-
 class Settings(BaseSettings):
-    # Use SQLite by default, but allow override via env var
-    database_url: str = os.getenv(
-        "DATABASE_URL",
-        f"sqlite:///{Path.home() / 'AppData' / 'Local' / 'astrophotography_db' / 'database.db' if os.name == 'nt' else Path.home() / '.config' / 'astrophotography_db' / 'database.db'}"
-    )
-    telescopius_api_url: str = "https://telescopius.com/api"
-    telescopius_api_key: str = ""
+    # Default for local development
+    database_url: str = "sqlite:///./astrophotography.db"
 
-    class Config:
-        env_file = ".env"
+    def __init__(self, **values):
+        super().__init__(**values)
+        
+        # Check if Electron sent us a specific data directory
+        user_data_dir = os.getenv("APP_USER_DATA")
+        
+        if user_data_dir:
+            # Ensure the directory exists
+            os.makedirs(user_data_dir, exist_ok=True)
+            
+            # Construct the absolute path for SQLite
+            # sqlite://// (4 slashes) indicates an absolute path
+            db_path = os.path.join(user_data_dir, "astrophotography.db")
+            self.database_url = f"sqlite:///{db_path}"
 
-
-@lru_cache()
-def get_settings() -> Settings:
+def get_settings():
     return Settings()

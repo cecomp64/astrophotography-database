@@ -34,6 +34,6 @@ RUN chmod +x entrypoint.sh
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser
 
-EXPOSE 8000
+EXPOSE 8833
 
 CMD ["./entrypoint.sh"]

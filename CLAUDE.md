@@ -19,7 +19,7 @@ Astrophotography Database is a web application for indexing and exploring astrop
 ```bash
 cp .env.example .env
 docker compose up -d
-# Frontend: http://localhost:4000, API: http://localhost:8000, Docs: http://localhost:8000/docs
+# Frontend: http://localhost:4000, API: http://localhost:8833, Docs: http://localhost:8833/docs
 ```
 
 ### Viewing Logs
