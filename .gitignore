@@ -45,3 +45,6 @@ logs/
 # Database
 *.db
 *.sqlite
+
+frontend/dist/
+frontend/dist-main/
