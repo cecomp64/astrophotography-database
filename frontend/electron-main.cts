@@ -137,7 +137,7 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on("window-all-closed", () => {
+app.on("will-quit", () => {
   if (apiProcess) apiProcess.kill();
   if (process.platform !== "darwin") app.quit();
 });
