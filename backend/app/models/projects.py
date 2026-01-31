@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, Index
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, UniqueConstraint, Index, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -34,7 +33,7 @@ class ProjectTarget(Base):
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     object_id = Column(Integer, ForeignKey("objects.id", ondelete="CASCADE"), nullable=False)
     is_primary = Column(Boolean, nullable=False, default=False)  # Primary target for visibility calculations
-    exposure_goals = Column(JSONB, nullable=True)  # {"L": 36000, "Ha": 72000} in seconds
+    exposure_goals = Column(JSON, nullable=True)  # {"L": 36000, "Ha": 72000} in seconds
     notes = Column(Text, nullable=True)  # Per-target notes
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

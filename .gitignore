@@ -25,6 +25,7 @@ dist/
 # IDE
 .idea/
 .vscode/
+!.vscode/tasks.json
 *.swp
 *.swo
 
@@ -41,6 +42,7 @@ data/
 # Logs
 *.log
 logs/
+!logs/.keep
 
 # Database
 *.db

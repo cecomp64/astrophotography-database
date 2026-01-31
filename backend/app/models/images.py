@@ -1,6 +1,5 @@
 from typing import Optional, List
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Index, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -35,7 +34,7 @@ class Image(Base):
 
     # Legacy FK - kept for backward compatibility, prefer image_objects
     object_id = Column(Integer, ForeignKey("objects.id", ondelete="SET NULL"), nullable=True)
-    fits_header = Column(JSONB, nullable=True)
+    fits_header = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

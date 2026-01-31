@@ -14,8 +14,9 @@ A web application for indexing and exploring astrophotography FITS files. Extrac
 
 - **Backend**: Python, FastAPI, SQLAlchemy, Astropy
 - **Frontend**: React, TypeScript, TailwindCSS, React Query
-- **Database**: PostgreSQL
-- **Deployment**: Docker, Docker Compose
+- **Database**: SQLite
+- **Deployment**: Electron, PyInstaller
+- **Development**: NGINX, VSCode
 
 ## Quick Start
 
