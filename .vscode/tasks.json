@@ -1,0 +1,68 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Clean Frontend Dist",
+			"type": "shell",
+			"command": "rm -rf frontend/dist frontend/dist-main",
+			"problemMatcher": [],
+			"group": "build",
+			"detail": "Clean the frontend dist directories"
+		},
+		{
+			"type": "npm",
+			"script": "electron-build",
+			"path": "frontend",
+			"group": "build",
+			"problemMatcher": [],
+			"label": "npm: electron-build - frontend",
+			"detail": "npm run build && electron-builder",
+			"dependsOn": [
+				"Clean Frontend Dist",
+			]
+		},
+		{
+			"label": "PyInstaller Linux",
+			"type": "shell",
+			"command": "docker compose exec api pyinstaller --noconfirm /app/api.spec && docker cp api:/app/dist backend/dist/",
+			"problemMatcher": [],
+			"group": "build",
+			"detail": "Build the backend using PyInstaller inside the Docker container"
+		},
+		{
+			"label": "PyInstaller",
+			"type": "shell",
+			"command": "cd backend && source ./venv/bin/activate && pyinstaller --noconfirm --clean api.spec",
+			"problemMatcher": [],
+			"group": "build",
+			"detail": "Build the backend using PyInstaller for the local platform"
+		},
+		{
+			"label": "Build Full Application",
+			"dependsOn": [
+				"PyInstaller",
+				"npm: electron-build - frontend"
+			],
+			"dependsOrder": "sequence",
+			"problemMatcher": [],
+			"group": "build",
+			"detail": "Build both backend and frontend, and package it up"
+		},
+		{
+			"label": "Start Backend",
+			"type": "shell",
+			"command": "cd backend && source ./venv/bin/activate && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --host 127.0.0.1 --port 8833",
+			"problemMatcher": [],
+			"group": "none",
+			"detail": "Run the backend application"
+		},
+		{
+			"label": "Start Frontend",
+			"type": "shell",
+			"command": "cd frontend && npm install && npm run build && nginx -p \"$PWD\" -c ./nginx.conf",
+			"problemMatcher": [],
+			"group": "none",
+			"detail": "Run the frontend application"
+		}
+	]
+}
