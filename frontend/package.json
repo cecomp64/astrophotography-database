@@ -3,7 +3,10 @@
   "private": true,
   "version": "1.0.0",
   "description": "A database application for managing astrophotography images and observations",
-  "author": "Carl Svensson",
+  "author": {
+    "name": "Carl Svensson",
+    "email": "csvenss2@gmail.com"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/cecomp64/astrophotography-database.git"
