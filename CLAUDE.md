@@ -60,6 +60,15 @@ alembic downgrade -1                                    # Rollback one migration
 ```
 
 ### Building for Distribution
+
+**Recommended: Use GitHub Actions CI** (builds all platforms automatically):
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+This triggers the release workflow which builds for macOS, Windows, and Linux, then publishes installers to GitHub Releases.
+
+**Local build** (current platform only):
 ```bash
 ./build-app.sh        # Builds Electron installer for current platform
 ```
@@ -164,3 +173,32 @@ Electron Main Process
 - **Linux**: AppImage + DEB package
 
 Installers are output to `frontend/dist/`.
+
+## CI/CD
+
+GitHub Actions workflow (`.github/workflows/release.yml`) automates cross-platform builds:
+
+### Triggering a Release
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+### What the Workflow Does
+1. Builds on macOS, Windows, and Linux runners in parallel
+2. Each runner: installs dependencies → builds PyInstaller backend → builds Electron app
+3. Uploads all artifacts to a GitHub Release
+
+### Release Artifacts
+| Platform | Files |
+|----------|-------|
+| macOS | `.dmg`, `.zip` |
+| Windows | `.exe` (NSIS installer, portable) |
+| Linux | `.AppImage`, `.deb` |
+
+### Manual Builds
+Use "Run workflow" button in GitHub Actions to trigger a test build without creating a release.
+
+### Versioning
+- Tags matching `v*` trigger automatic releases (e.g., `v1.0.0`, `v2.1.0-beta`)
+- Pre-release versions (containing `-`) are marked as pre-releases on GitHub
