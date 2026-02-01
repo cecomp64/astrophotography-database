@@ -127,6 +127,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -145,6 +147,44 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Get last published release
+        id: last_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get the tag of the last published (non-draft) release
+          LAST_RELEASE=$(gh release list --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // empty')
+          if [ -n "$LAST_RELEASE" ]; then
+            echo "tag=$LAST_RELEASE" >> $GITHUB_OUTPUT
+            echo "Found last release: $LAST_RELEASE"
+          else
+            echo "tag=" >> $GITHUB_OUTPUT
+            echo "No previous release found, will include all commits"
+          fi
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          CURRENT_TAG="${{ steps.version.outputs.version }}"
+          LAST_TAG="${{ steps.last_release.outputs.tag }}"
+
+          echo "## What's Changed" > release_notes.md
+          echo "" >> release_notes.md
+
+          if [ -n "$LAST_TAG" ]; then
+            echo "Generating notes from $LAST_TAG to $CURRENT_TAG"
+            git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges >> release_notes.md
+          else
+            echo "Generating notes for all commits"
+            git log --pretty=format:"- %s (%h)" --no-merges -50 >> release_notes.md
+          fi
+
+          echo "" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG:-}...${CURRENT_TAG}" >> release_notes.md
+
+          cat release_notes.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -152,7 +192,7 @@ jobs:
           name: Astrophotography Database ${{ steps.version.outputs.version }}
           draft: false
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
-          generate_release_notes: true
+          body_path: release_notes.md
           files: |
             artifacts/mac-build/*
             artifacts/win-build/*
