@@ -323,6 +323,407 @@ def index_directory_stream(
     )
 
 
+@router.post("/reindex/stream")
+def reindex_stream(
+    re_resolve_names: bool = Query(default=False, description="Re-resolve object names via Telescopius to fetch missing aliases"),
+):
+    """
+    Reindex all files with real-time progress streaming via SSE.
+
+    Args:
+        re_resolve_names: If True, re-resolve object names via Telescopius even if already resolved.
+                         This can fetch additional aliases for existing objects.
+
+    Returns Server-Sent Events with progress updates.
+    """
+    def generate_progress() -> Generator[str, None, None]:
+        from app.models import Image, ImageObject
+
+        db = SessionLocal()
+        try:
+            images = db.query(Image).all()
+            total_images = len(images)
+
+            yield sse_event({
+                "status": "started",
+                "phase": "reindexing",
+                "total": total_images,
+                "current": 0,
+                "message": f"Found {total_images} images to reindex"
+            })
+
+            if total_images == 0:
+                yield sse_event({
+                    "status": "completed",
+                    "updated": 0,
+                    "errors": 0,
+                    "re_resolved": 0,
+                    "message": "No images to reindex"
+                }, "complete")
+                return
+
+            indexer = FileIndexer(db)
+            stats = {"updated": 0, "errors": 0, "re_resolved": 0}
+
+            for i, image in enumerate(images):
+                try:
+                    from pathlib import Path
+                    file_path = Path(image.file_path)
+
+                    if not file_path.exists():
+                        # File no longer exists, skip
+                        yield sse_event({
+                            "status": "reindexing",
+                            "phase": "reindexing",
+                            "current": i + 1,
+                            "total": total_images,
+                            "percent": round((i + 1) / total_images * 100, 1),
+                            "current_file": image.file_name,
+                            "updated": stats["updated"],
+                            "errors": stats["errors"],
+                            "re_resolved": stats["re_resolved"],
+                            "message": f"Skipped (file not found): {image.file_name}"
+                        })
+                        continue
+
+                    metadata = indexer.extractor.extract(file_path)
+
+                    # Update image metadata
+                    image.date_taken = metadata.date_taken
+                    image.exposure_time = metadata.exposure_time
+                    image.filter_name = metadata.filter_name
+                    image.telescope = metadata.telescope
+                    image.camera = metadata.camera
+                    image.gain = metadata.gain
+                    image.iso = metadata.iso
+                    image.binning = metadata.binning
+                    image.fits_header = metadata.fits_header
+
+                    # Update FOV-related fields
+                    image.ra = metadata.ra
+                    image.dec = metadata.dec
+                    image.pixel_size_x = metadata.pixel_size_x
+                    image.pixel_size_y = metadata.pixel_size_y
+                    image.image_width = metadata.image_width
+                    image.image_height = metadata.image_height
+                    image.focal_length = metadata.focal_length
+                    image.fov_width = metadata.fov_width
+                    image.fov_height = metadata.fov_height
+
+                    # Re-resolve object name if requested or if not already linked
+                    if metadata.object_name and (re_resolve_names or not image.object_id):
+                        obj = indexer.resolver.resolve(metadata.object_name, file_path=str(file_path))
+                        if obj:
+                            if re_resolve_names and image.object_id:
+                                stats["re_resolved"] += 1
+                            image.object_id = obj.id
+                            # Create ImageObject association if not exists
+                            existing_assoc = db.query(ImageObject).filter(
+                                ImageObject.image_id == image.id,
+                                ImageObject.object_id == obj.id
+                            ).first()
+                            if not existing_assoc:
+                                image_object = ImageObject(
+                                    image_id=image.id,
+                                    object_id=obj.id,
+                                    association_type="primary",
+                                    angular_distance=0.0
+                                )
+                                db.add(image_object)
+
+                    db.commit()
+                    stats["updated"] += 1
+
+                except Exception as e:
+                    db.rollback()
+                    stats["errors"] += 1
+
+                # Send progress update
+                yield sse_event({
+                    "status": "reindexing",
+                    "phase": "reindexing",
+                    "current": i + 1,
+                    "total": total_images,
+                    "percent": round((i + 1) / total_images * 100, 1),
+                    "current_file": image.file_name,
+                    "updated": stats["updated"],
+                    "errors": stats["errors"],
+                    "re_resolved": stats["re_resolved"]
+                })
+
+            # Final result
+            yield sse_event({
+                "status": "completed",
+                "updated": stats["updated"],
+                "errors": stats["errors"],
+                "re_resolved": stats["re_resolved"]
+            }, "complete")
+
+        except Exception as e:
+            yield sse_event({"status": "error", "message": str(e)}, "error")
+        finally:
+            db.close()
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.post("/detect-fov-objects/stream")
+def detect_fov_objects_stream(
+    catalogs: list[str] = Query(default=["NGC", "IC", "Messier", "LDN", "LBN"]),
+    only_missing: bool = Query(default=True),
+):
+    """
+    Detect FOV objects for all images with real-time progress streaming via SSE.
+
+    Args:
+        catalogs: List of catalog types to search
+        only_missing: Only process images without existing FOV associations
+
+    Returns Server-Sent Events with progress updates.
+    """
+    def generate_progress() -> Generator[str, None, None]:
+        from app.models import Image, ImageObject
+
+        db = SessionLocal()
+        try:
+            # Get images to process
+            query = db.query(Image).filter(
+                Image.ra.isnot(None),
+                Image.dec.isnot(None),
+                Image.fov_width.isnot(None),
+                Image.fov_height.isnot(None)
+            )
+
+            if only_missing:
+                # Only images without any in_fov associations
+                images_with_fov = db.query(ImageObject.image_id).filter(
+                    ImageObject.association_type == "in_fov"
+                ).distinct()
+                query = query.filter(~Image.id.in_(images_with_fov))
+
+            images = query.all()
+            total_images = len(images)
+
+            yield sse_event({
+                "status": "started",
+                "phase": "detecting",
+                "total": total_images,
+                "current": 0,
+                "message": f"Found {total_images} images to process"
+            })
+
+            if total_images == 0:
+                yield sse_event({
+                    "status": "completed",
+                    "processed": 0,
+                    "objects_found": 0,
+                    "message": "No images to process"
+                }, "complete")
+                return
+
+            matcher = FOVMatcher(db)
+            stats = {"processed": 0, "objects_found": 0}
+
+            for i, image in enumerate(images):
+                try:
+                    matches = matcher.match_image_to_objects(image, catalogs)
+                    stats["processed"] += 1
+                    stats["objects_found"] += len(matches)
+                except Exception:
+                    pass  # Continue with next image
+
+                # Send progress update
+                yield sse_event({
+                    "status": "detecting",
+                    "phase": "detecting",
+                    "current": i + 1,
+                    "total": total_images,
+                    "percent": round((i + 1) / total_images * 100, 1),
+                    "current_file": image.file_name,
+                    "processed": stats["processed"],
+                    "objects_found": stats["objects_found"]
+                })
+
+            # Final result
+            yield sse_event({
+                "status": "completed",
+                "processed": stats["processed"],
+                "objects_found": stats["objects_found"]
+            }, "complete")
+
+        except Exception as e:
+            yield sse_event({"status": "error", "message": str(e)}, "error")
+        finally:
+            db.close()
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.post("/re-resolve-names/stream")
+def re_resolve_names_stream():
+    """
+    Re-resolve object names via Telescopius to fetch missing aliases.
+
+    Only processes objects that have associated images (not catalogue-only objects).
+    This is useful when you initially indexed without Telescopius API configured,
+    and later want to enrich existing objects with additional aliases.
+
+    Returns Server-Sent Events with progress updates.
+    """
+    def generate_progress() -> Generator[str, None, None]:
+        from app.models import AstroObject, ObjectAlias, Image
+        from app.services.name_resolver import NameResolver, get_telescopius_api_key
+
+        db = SessionLocal()
+        try:
+            # Check if Telescopius API is configured
+            api_key = get_telescopius_api_key(db)
+            if not api_key:
+                yield sse_event({
+                    "status": "error",
+                    "message": "Telescopius API key not configured. Please set it in Settings."
+                }, "error")
+                return
+
+            # Get only objects that have associated images
+            # This avoids querying Telescopius for catalogue objects with no images
+            objects_with_images = db.query(Image.object_id).filter(
+                Image.object_id.isnot(None)
+            ).distinct().subquery()
+
+            objects = db.query(AstroObject).filter(
+                AstroObject.id.in_(objects_with_images)
+            ).all()
+            total_objects = len(objects)
+
+            yield sse_event({
+                "status": "started",
+                "phase": "resolving",
+                "total": total_objects,
+                "current": 0,
+                "message": f"Found {total_objects} objects to check"
+            })
+
+            if total_objects == 0:
+                yield sse_event({
+                    "status": "completed",
+                    "checked": 0,
+                    "updated": 0,
+                    "aliases_added": 0,
+                    "message": "No objects to check"
+                }, "complete")
+                return
+
+            resolver = NameResolver(db)
+            stats = {"checked": 0, "updated": 0, "aliases_added": 0, "errors": 0}
+
+            for i, obj in enumerate(objects):
+                try:
+                    # Skip solar system objects
+                    if obj.object_type in ["Planet", "Moon", "Dwarf Planet", "Star"] and obj.primary_name.lower() in resolver.SOLAR_SYSTEM_OBJECTS:
+                        stats["checked"] += 1
+                        yield sse_event({
+                            "status": "resolving",
+                            "phase": "resolving",
+                            "current": i + 1,
+                            "total": total_objects,
+                            "percent": round((i + 1) / total_objects * 100, 1),
+                            "current_object": obj.primary_name,
+                            "checked": stats["checked"],
+                            "updated": stats["updated"],
+                            "aliases_added": stats["aliases_added"]
+                        })
+                        continue
+
+                    # Try to get more info from Telescopius
+                    if hasattr(resolver.client, 'search_object_sync'):
+                        telescopius_obj = resolver.client.search_object_sync(obj.primary_name)
+                        if telescopius_obj:
+                            aliases_before = db.query(ObjectAlias).filter(ObjectAlias.object_id == obj.id).count()
+
+                            # Add any new aliases
+                            existing_aliases = {a.alias_name.lower() for a in db.query(ObjectAlias).filter(ObjectAlias.object_id == obj.id).all()}
+                            existing_aliases.add(obj.primary_name.lower())
+
+                            for alias_data in telescopius_obj.aliases:
+                                alias_name = alias_data.get("name", "")
+                                if alias_name and alias_name.lower() not in existing_aliases:
+                                    alias = ObjectAlias(
+                                        object_id=obj.id,
+                                        alias_name=alias_name,
+                                        catalog=alias_data.get("catalog"),
+                                    )
+                                    db.add(alias)
+                                    existing_aliases.add(alias_name.lower())
+
+                            db.commit()
+
+                            aliases_after = db.query(ObjectAlias).filter(ObjectAlias.object_id == obj.id).count()
+                            new_aliases = aliases_after - aliases_before
+                            if new_aliases > 0:
+                                stats["updated"] += 1
+                                stats["aliases_added"] += new_aliases
+
+                    stats["checked"] += 1
+
+                except Exception:
+                    stats["errors"] += 1
+                    db.rollback()
+
+                # Send progress update
+                yield sse_event({
+                    "status": "resolving",
+                    "phase": "resolving",
+                    "current": i + 1,
+                    "total": total_objects,
+                    "percent": round((i + 1) / total_objects * 100, 1),
+                    "current_object": obj.primary_name,
+                    "checked": stats["checked"],
+                    "updated": stats["updated"],
+                    "aliases_added": stats["aliases_added"]
+                })
+
+            # Final result
+            yield sse_event({
+                "status": "completed",
+                "checked": stats["checked"],
+                "updated": stats["updated"],
+                "aliases_added": stats["aliases_added"],
+                "errors": stats["errors"]
+            }, "complete")
+
+        except Exception as e:
+            yield sse_event({"status": "error", "message": str(e)}, "error")
+        finally:
+            db.close()
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @router.post("/download-catalogues/stream")
 def download_catalogues_stream(
     catalogs: list[str] = Query(default=["openngc", "ldn", "lbn"]),

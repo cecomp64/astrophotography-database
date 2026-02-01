@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { indexerApi, IndexResult, CatalogueDownloadResult, CatalogueStats, API_BASE_URL } from '../api/client'
 import ProgressBar from '../components/ProgressBar'
 import FilePicker from '../components/FilePicker'
@@ -15,6 +15,16 @@ interface ProgressState {
   errors?: number
   currentFile?: string
   currentCatalog?: string
+  // Reindex-specific
+  updated?: number
+  reResolved?: number
+  // FOV detection-specific
+  processed?: number
+  objectsFound?: number
+  // Re-resolve names specific
+  checked?: number
+  aliasesAdded?: number
+  currentObject?: string
 }
 
 const initialProgress: ProgressState = {
@@ -38,6 +48,9 @@ export default function IndexerPage() {
   })
   const [indexProgress, setIndexProgress] = useState<ProgressState>(initialProgress)
   const [catalogueProgress, setCatalogueProgress] = useState<ProgressState>(initialProgress)
+  const [reindexProgress, setReindexProgress] = useState<ProgressState>(initialProgress)
+  const [fovProgress, setFovProgress] = useState<ProgressState>(initialProgress)
+  const [reResolveProgress, setReResolveProgress] = useState<ProgressState>(initialProgress)
   const queryClient = useQueryClient()
 
   // Fetch current catalogue stats
@@ -46,20 +59,246 @@ export default function IndexerPage() {
     queryFn: indexerApi.getCatalogueStats,
   })
 
-  const reindexMutation = useMutation({
-    mutationFn: indexerApi.reindex,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['images'] })
-      queryClient.invalidateQueries({ queryKey: ['objects'] })
-    },
-  })
+  // Helper function to handle SSE streaming
+  const handleSSEStream = async (
+    url: string,
+    method: 'GET' | 'POST',
+    onProgress: (data: Record<string, unknown>) => void,
+    onError: (error: string) => void,
+    body?: Record<string, unknown>
+  ) => {
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      })
 
-  const detectFovMutation = useMutation({
-    mutationFn: () => indexerApi.detectFovObjects(undefined, true),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['images'] })
-    },
-  })
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      const decoder = new TextDecoder()
+
+      if (!reader) {
+        throw new Error('No response body')
+      }
+
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              onProgress(data)
+            } catch {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Connection error')
+    }
+  }
+
+  const handleReindex = async () => {
+    setReindexProgress({
+      status: 'running',
+      percent: 0,
+      message: 'Starting reindex...',
+    })
+
+    const url = `${API_BASE_URL}/indexer/reindex/stream`
+
+    await handleSSEStream(
+      url,
+      'POST',
+      (data) => {
+        const status = data.status as string
+        if (status === 'started') {
+          setReindexProgress({
+            status: 'running',
+            percent: 0,
+            message: data.message as string,
+            total: data.total as number,
+            current: 0,
+          })
+        } else if (status === 'reindexing') {
+          setReindexProgress({
+            status: 'running',
+            percent: data.percent as number,
+            message: `Reindexing: ${data.current_file}`,
+            current: data.current as number,
+            total: data.total as number,
+            updated: data.updated as number,
+            errors: data.errors as number,
+            reResolved: data.re_resolved as number,
+            currentFile: data.current_file as string,
+          })
+        } else if (status === 'completed') {
+          setReindexProgress({
+            status: 'completed',
+            percent: 100,
+            message: 'Reindex complete!',
+            updated: data.updated as number,
+            errors: data.errors as number,
+            reResolved: data.re_resolved as number,
+          })
+          queryClient.invalidateQueries({ queryKey: ['images'] })
+          queryClient.invalidateQueries({ queryKey: ['objects'] })
+        } else if (status === 'error') {
+          setReindexProgress({
+            status: 'error',
+            percent: 0,
+            message: data.message as string,
+          })
+        }
+      },
+      (error) => {
+        setReindexProgress({
+          status: 'error',
+          percent: 0,
+          message: error,
+        })
+      }
+    )
+  }
+
+  const handleDetectFov = async () => {
+    setFovProgress({
+      status: 'running',
+      percent: 0,
+      message: 'Starting FOV detection...',
+    })
+
+    const params = new URLSearchParams({
+      only_missing: 'true',
+    })
+    const url = `${API_BASE_URL}/indexer/detect-fov-objects/stream?${params}`
+
+    await handleSSEStream(
+      url,
+      'POST',
+      (data) => {
+        const status = data.status as string
+        if (status === 'started') {
+          setFovProgress({
+            status: 'running',
+            percent: 0,
+            message: data.message as string,
+            total: data.total as number,
+            current: 0,
+          })
+        } else if (status === 'detecting') {
+          setFovProgress({
+            status: 'running',
+            percent: data.percent as number,
+            message: `Processing: ${data.current_file}`,
+            current: data.current as number,
+            total: data.total as number,
+            processed: data.processed as number,
+            objectsFound: data.objects_found as number,
+            currentFile: data.current_file as string,
+          })
+        } else if (status === 'completed') {
+          setFovProgress({
+            status: 'completed',
+            percent: 100,
+            message: 'FOV detection complete!',
+            processed: data.processed as number,
+            objectsFound: data.objects_found as number,
+          })
+          queryClient.invalidateQueries({ queryKey: ['images'] })
+        } else if (status === 'error') {
+          setFovProgress({
+            status: 'error',
+            percent: 0,
+            message: data.message as string,
+          })
+        }
+      },
+      (error) => {
+        setFovProgress({
+          status: 'error',
+          percent: 0,
+          message: error,
+        })
+      }
+    )
+  }
+
+  const handleReResolveNames = async () => {
+    setReResolveProgress({
+      status: 'running',
+      percent: 0,
+      message: 'Starting name resolution...',
+    })
+
+    const url = `${API_BASE_URL}/indexer/re-resolve-names/stream`
+
+    await handleSSEStream(
+      url,
+      'POST',
+      (data) => {
+        const status = data.status as string
+        if (status === 'started') {
+          setReResolveProgress({
+            status: 'running',
+            percent: 0,
+            message: data.message as string,
+            total: data.total as number,
+            current: 0,
+          })
+        } else if (status === 'resolving') {
+          setReResolveProgress({
+            status: 'running',
+            percent: data.percent as number,
+            message: `Resolving: ${data.current_object}`,
+            current: data.current as number,
+            total: data.total as number,
+            checked: data.checked as number,
+            updated: data.updated as number,
+            aliasesAdded: data.aliases_added as number,
+            currentObject: data.current_object as string,
+          })
+        } else if (status === 'completed') {
+          setReResolveProgress({
+            status: 'completed',
+            percent: 100,
+            message: 'Name resolution complete!',
+            checked: data.checked as number,
+            updated: data.updated as number,
+            aliasesAdded: data.aliases_added as number,
+            errors: data.errors as number,
+          })
+          queryClient.invalidateQueries({ queryKey: ['objects'] })
+        } else if (status === 'error') {
+          setReResolveProgress({
+            status: 'error',
+            percent: 0,
+            message: data.message as string,
+          })
+        }
+      },
+      (error) => {
+        setReResolveProgress({
+          status: 'error',
+          percent: 0,
+          message: error,
+        })
+      }
+    )
+  }
 
   const handleIndex = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -292,8 +531,9 @@ export default function IndexerPage() {
 
   const isLoading = indexProgress.status === 'running' ||
                     catalogueProgress.status === 'running' ||
-                    reindexMutation.isPending ||
-                    detectFovMutation.isPending
+                    reindexProgress.status === 'running' ||
+                    fovProgress.status === 'running' ||
+                    reResolveProgress.status === 'running'
 
   return (
     <div className="space-y-6">
@@ -462,30 +702,99 @@ export default function IndexerPage() {
 
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Maintenance</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <button
-              onClick={() => reindexMutation.mutate()}
+              onClick={handleReindex}
               disabled={isLoading}
               className="btn btn-secondary w-full disabled:opacity-50"
             >
-              {reindexMutation.isPending ? 'Reindexing...' : 'Reindex All Files'}
+              {reindexProgress.status === 'running' ? 'Reindexing...' : 'Reindex All Files'}
             </button>
             <p className="text-xs text-gray-500 mt-1">
               Re-reads metadata for all already-indexed files
             </p>
+            {reindexProgress.status !== 'idle' && (
+              <div className="mt-2">
+                <ProgressBar
+                  percent={reindexProgress.percent}
+                  message={reindexProgress.message}
+                  status={reindexProgress.status}
+                  details={{
+                    current: reindexProgress.current,
+                    total: reindexProgress.total,
+                    indexed: reindexProgress.updated,
+                    errors: reindexProgress.errors,
+                  }}
+                />
+                {reindexProgress.status === 'completed' && reindexProgress.updated !== undefined && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    Updated: {reindexProgress.updated}
+                    {reindexProgress.errors ? `, Errors: ${reindexProgress.errors}` : ''}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div>
             <button
-              onClick={() => detectFovMutation.mutate()}
+              onClick={handleDetectFov}
               disabled={isLoading}
               className="btn btn-secondary w-full disabled:opacity-50"
             >
-              {detectFovMutation.isPending ? 'Detecting...' : 'Detect FOV Objects'}
+              {fovProgress.status === 'running' ? 'Detecting...' : 'Detect FOV Objects'}
             </button>
             <p className="text-xs text-gray-500 mt-1">
               Find catalogue objects within each image's field of view
             </p>
+            {fovProgress.status !== 'idle' && (
+              <div className="mt-2">
+                <ProgressBar
+                  percent={fovProgress.percent}
+                  message={fovProgress.message}
+                  status={fovProgress.status}
+                  details={{
+                    current: fovProgress.current,
+                    total: fovProgress.total,
+                  }}
+                />
+                {fovProgress.status === 'completed' && fovProgress.objectsFound !== undefined && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    Found {fovProgress.objectsFound} objects in {fovProgress.processed} images
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <div>
+            <button
+              onClick={handleReResolveNames}
+              disabled={isLoading}
+              className="btn btn-secondary w-full disabled:opacity-50"
+            >
+              {reResolveProgress.status === 'running' ? 'Resolving...' : 'Re-resolve Names'}
+            </button>
+            <p className="text-xs text-gray-500 mt-1">
+              Fetch additional aliases from Telescopius for objects with images
+            </p>
+            {reResolveProgress.status !== 'idle' && (
+              <div className="mt-2">
+                <ProgressBar
+                  percent={reResolveProgress.percent}
+                  message={reResolveProgress.message}
+                  status={reResolveProgress.status}
+                  details={{
+                    current: reResolveProgress.current,
+                    total: reResolveProgress.total,
+                  }}
+                />
+                {reResolveProgress.status === 'completed' && reResolveProgress.aliasesAdded !== undefined && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    Added {reResolveProgress.aliasesAdded} aliases to {reResolveProgress.updated} objects
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -553,12 +862,16 @@ export default function IndexerPage() {
         </div>
       )}
 
-      {(indexProgress.status === 'error' || catalogueProgress.status === 'error' || detectFovMutation.isError) && (
+      {(indexProgress.status === 'error' || catalogueProgress.status === 'error' ||
+        reindexProgress.status === 'error' || fovProgress.status === 'error' || reResolveProgress.status === 'error') && (
         <div className="card border-red-500">
           <p className="text-red-400">
             Error: {indexProgress.status === 'error' ? indexProgress.message :
                    catalogueProgress.status === 'error' ? catalogueProgress.message :
-                   detectFovMutation.error?.message || 'An error occurred'}
+                   reindexProgress.status === 'error' ? reindexProgress.message :
+                   fovProgress.status === 'error' ? fovProgress.message :
+                   reResolveProgress.status === 'error' ? reResolveProgress.message :
+                   'An error occurred'}
           </p>
         </div>
       )}
