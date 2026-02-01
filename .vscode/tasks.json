@@ -63,6 +63,14 @@
 			"problemMatcher": [],
 			"group": "none",
 			"detail": "Run the frontend application"
+		},
+		{
+			"label": "Tag and Release",
+			"type": "shell",
+			"command": "VERSION=$(node -p \"require('./frontend/package.json').version\") && git tag v$VERSION && git push origin v$VERSION",
+			"problemMatcher": [],
+			"group": "none",
+			"detail": "Create a version tag from package.json and push to trigger CI release"
 		}
 	]
 }
