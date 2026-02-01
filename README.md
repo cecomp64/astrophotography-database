@@ -1,122 +1,148 @@
 # Astrophotography Database
 
-A web application for indexing and exploring astrophotography FITS files. Extracts metadata from FITS headers and filenames, resolves object names using the Telescopius API, and provides a searchable database with a modern web interface.
+A desktop application for indexing and exploring astrophotography FITS files. Extracts metadata from FITS headers and filenames, resolves object names using the Telescopius API, and provides a searchable database with a modern interface.
 
 ## Features
 
 - **FITS File Indexing**: Automatically extract metadata from FITS headers
 - **Object Name Resolution**: Resolve object names using Telescopius API with local caching
 - **Alias Support**: Track multiple names per object (M42, NGC 1976, Orion Nebula, etc.)
-- **Web UI**: Search, browse, and explore your astrophotography collection
+- **Field of View Detection**: Automatically detect objects within image FOV using WCS coordinates
+- **Project Management**: Organize imaging sessions and track exposure progress
+- **Altitude Charts**: Visualize object visibility for your location
+- **Catalogue Import**: Import OpenNGC, LDN, LBN catalogues for comprehensive object data
 - **Statistics**: View total exposure time, filter usage, equipment stats
 
 ## Tech Stack
 
-- **Backend**: Python, FastAPI, SQLAlchemy, Astropy
+- **Backend**: Python, FastAPI, SQLAlchemy, Astropy, Astroplan
 - **Frontend**: React, TypeScript, TailwindCSS, React Query
-- **Database**: SQLite
-- **Deployment**: Electron, PyInstaller
-- **Development**: NGINX, VSCode
+- **Database**: SQLite (embedded)
+- **Desktop**: Electron, PyInstaller
 
-## Quick Start
+## Installation
 
-### Using Docker Compose (Recommended)
+### Download Release
 
-1. Clone the repository and navigate to the directory
+Download the latest release for your platform from the [Releases](../../releases) page:
 
-2. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
+- **macOS**: `.dmg` installer
+- **Windows**: `.exe` installer
+- **Linux**: `.AppImage` or `.deb` package
 
-3. Start the services:
-   ```bash
-   docker-compose up -d
-   ```
+### Build from Source
 
-4. Access the application:
-   - Frontend: http://localhost:3000
-   - API: http://localhost:8833
-   - API Docs: http://localhost:8833/docs
+#### Prerequisites
 
-5. Use the Indexer page to scan your FITS directories by providing the path
+- Node.js 18+
+- Python 3.12+
+- pip
 
-### Local Development
-
-#### Backend
+#### Setup
 
 ```bash
-cd backend
+# Clone the repository
+git clone https://github.com/your-username/astrophotography-database.git
+cd astrophotography-database
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Run setup script (installs all dependencies)
+./setup-electron.sh
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy environment file
-cp .env.example .env
-
-# Start PostgreSQL (using Docker)
-docker run -d --name postgres -p 5432:5432 \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=astrophotography \
-  postgres:16-alpine
-
-# Run migrations
-alembic upgrade head
-
-# Start the API server
-uvicorn app.main:app --reload
+# Or manually:
+cd frontend && npm install
+cd ../backend && pip install -r requirements.txt
 ```
 
-#### Frontend
+## Development
+
+### Start Development Mode
 
 ```bash
 cd frontend
+npm run electron-dev
+```
 
-# Install dependencies
-npm install
+This launches the Electron app with:
+- Hot-reloading React frontend (Vite)
+- Python backend API server
+- DevTools enabled
 
-# Start development server
+### Backend Only
+
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --port 8833
+```
+
+API documentation available at http://localhost:8833/docs
+
+### Frontend Only
+
+```bash
+cd frontend
 npm run dev
 ```
+
+## Building for Distribution
+
+```bash
+# Build for current platform
+./build-app.sh
+
+# Or manually:
+cd backend && pyinstaller api.spec
+cd ../frontend && npm run electron-build
+
+# Build for all platforms
+cd frontend && npm run electron-build-all
+```
+
+Build outputs are placed in `frontend/dist/`.
 
 ## API Endpoints
 
 ### Objects
 
-- `GET /objects` - List all objects
-- `GET /objects/{id}` - Get object details
-- `GET /objects/search?q=...` - Search objects by name/alias
-- `POST /objects` - Create new object
-- `PATCH /objects/{id}` - Update object
-- `DELETE /objects/{id}` - Delete object
+- `GET /api/objects` - List all objects with filtering
+- `GET /api/objects/{id}` - Get object details
+- `GET /api/objects/search?q=...` - Search objects by name/alias
+- `GET /api/objects/{id}/altitude` - Get altitude chart data
 
 ### Images
 
-- `GET /images` - List images with filters
-- `GET /images/{id}` - Get image details
-- `GET /images/stats` - Get statistics
-- `POST /images/{id}/link-object/{object_id}` - Link image to object
+- `GET /api/images` - List images with filters
+- `GET /api/images/{id}` - Get image details
+- `GET /api/images/stats` - Get statistics
 
 ### Indexer
 
-- `POST /indexer/directory` - Index a directory (provide `directory` path in request body)
-- `POST /indexer/file` - Index a single file (provide `file_path` in request body)
-- `POST /indexer/reindex` - Reindex all files in the database
+- `POST /api/indexer/directory` - Index a directory
+- `POST /api/indexer/file` - Index a single file
+- `POST /api/indexer/reindex` - Reindex all files
+
+### Projects
+
+- `GET /api/projects` - List projects
+- `POST /api/projects` - Create project
+- `GET /api/projects/{id}` - Get project details with progress
+
+### Catalogue
+
+- `GET /api/catalogue` - Browse imported catalogues
+- `POST /api/catalogue/import/{catalogue}` - Import catalogue (openngc, ldn, lbn)
+
+### Configuration
+
+- `GET /api/config` - Get current settings
+- `POST /api/config` - Update settings (location, timezone)
 
 ## Configuration
 
-Environment variables:
+Settings are configured through the Settings page in the app:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/astrophotography` |
-| `TELESCOPIUS_API_URL` | Telescopius API base URL | `https://telescopius.com/api` |
-| `TELESCOPIUS_API_KEY` | API key (optional) | - |
+- **Observer Location**: Latitude, longitude, elevation for altitude calculations
+- **Timezone**: Your local timezone for visibility charts
+- **Telescopius API Key**: Optional API key for object name resolution
 
 ## Project Structure
 
@@ -124,26 +150,28 @@ Environment variables:
 astrophotography-database/
 ├── backend/
 │   ├── app/
-│   │   ├── models/        # SQLAlchemy models
-│   │   ├── routers/       # FastAPI routes
+│   │   ├── models/        # SQLAlchemy ORM models
+│   │   ├── routers/       # FastAPI endpoints
 │   │   ├── schemas/       # Pydantic schemas
 │   │   ├── services/      # Business logic
 │   │   ├── config.py      # Configuration
 │   │   ├── database.py    # Database setup
-│   │   └── main.py        # FastAPI app
+│   │   └── main.py        # FastAPI app entry
 │   ├── alembic/           # Database migrations
-│   ├── requirements.txt
-│   └── Dockerfile
+│   ├── api.spec           # PyInstaller spec
+│   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── api/           # API client
+│   │   ├── api/           # Type-safe API client
 │   │   ├── components/    # React components
 │   │   ├── pages/         # Page components
 │   │   ├── App.tsx
 │   │   └── main.tsx
-│   ├── package.json
-│   └── Dockerfile
-├── docker-compose.yml
+│   ├── electron-main.cts  # Electron main process
+│   ├── preload.ts         # Electron preload script
+│   └── package.json
+├── setup-electron.sh      # Development setup script
+├── build-app.sh           # Build script
 └── README.md
 ```
 
@@ -160,18 +188,34 @@ The indexer extracts the following metadata from FITS headers:
 - Binning (`XBINNING`, `YBINNING`)
 - Object name (`OBJECT`, `OBJNAME`)
 - Coordinates (`RA`, `DEC`, `OBJCTRA`, `OBJCTDEC`)
+- WCS data for field of view calculations
 
 Object names are also extracted from filenames and directory paths using common patterns like `M42_2023-01-01_L.fits` or `NGC7000/Ha/image.fits`.
 
 ## Indexing FITS Files
 
-To index your FITS files:
-
-1. Via the Web UI: Go to the Indexer page and enter the directory path
-2. Via API: POST to `/indexer/directory` with `{"directory": "/path/to/fits", "recursive": true}`
+1. Open the Indexer page in the app
+2. Use the file browser to select a directory containing FITS files
+3. Click "Index Directory" to scan and import
 
 The indexer will:
 - Scan for `.fits`, `.fit`, `.fts` files (including `.gz` compressed)
 - Extract metadata from FITS headers
-- Attempt to resolve object names using the local database and Telescopius API
+- Resolve object names using the local database and Telescopius API
+- Detect objects within the image field of view (if WCS data available)
 - Store image records in the database
+
+## Database
+
+The application uses SQLite for data storage. Database location:
+
+- **Development**: `./astrophotography.db` in project root
+- **Production**:
+  - macOS/Linux: `~/.config/astrophotography_db/database.db`
+  - Windows: `%LOCALAPPDATA%/astrophotography_db/database.db`
+
+Database migrations run automatically on startup.
+
+## License
+
+MIT

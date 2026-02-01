@@ -4,97 +4,163 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Astrophotography Database is a web application for indexing and exploring astrophotography FITS files. It extracts metadata from FITS headers, resolves object names via the Telescopius API (with local caching), tracks multiple aliases per astronomical object, and provides a searchable web interface with statistics and altitude/visibility charts.
+Astrophotography Database is a desktop application for indexing and exploring astrophotography FITS files. It extracts metadata from FITS headers, resolves object names via the Telescopius API (with local caching), tracks multiple aliases per astronomical object, and provides a searchable interface with statistics and altitude/visibility charts.
+
+The application is packaged as an Electron desktop app with an embedded Python backend.
 
 ## Tech Stack
 
 - **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic (migrations)
-- **Database**: PostgreSQL 16
+- **Database**: SQLite (embedded, no external database required)
 - **Frontend**: React 18, TypeScript, Vite, TailwindCSS, React Query
-- **Astronomy**: Astropy for FITS parsing and coordinate calculations
+- **Desktop**: Electron 27, PyInstaller (backend bundling)
+- **Astronomy**: Astropy for FITS parsing, Astroplan for visibility calculations
 
 ## Development Commands
 
-### Starting the Application
+### Initial Setup
 ```bash
-cp .env.example .env
-docker compose up -d
-# Frontend: http://localhost:4000, API: http://localhost:8833, Docs: http://localhost:8833/docs
+./setup-electron.sh   # Installs frontend npm packages + backend pip requirements
 ```
 
-### Viewing Logs
+Or manually:
 ```bash
-docker compose logs -f           # All services
-docker compose logs -f backend   # Backend only
-docker compose logs -f frontend  # Frontend only
+cd frontend && npm install
+cd ../backend && pip install -r requirements.txt
+```
+
+### Starting Development Mode
+```bash
+cd frontend
+npm run electron-dev
+```
+This starts:
+- Vite dev server on `localhost:5173` (hot reload)
+- Python backend on `localhost:8833`
+- Electron window with DevTools enabled
+
+### Backend Only (for API development)
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --port 8833
+```
+
+### Frontend Only (for UI development)
+```bash
+cd frontend
+npm run dev
 ```
 
 ### Database Migrations
 ```bash
-docker compose exec backend alembic upgrade head     # Run migrations
-docker compose exec backend alembic revision --autogenerate -m "description"  # Create migration
-docker compose exec backend alembic downgrade -1     # Rollback one migration
+cd backend
+alembic upgrade head                                    # Run migrations
+alembic revision --autogenerate -m "description"        # Create migration
+alembic downgrade -1                                    # Rollback one migration
 ```
 
-### Running Backend Commands
+### Building for Distribution
 ```bash
-docker compose exec backend python -m pytest        # Run tests
-docker compose exec backend python -c "..."         # Run Python code
+./build-app.sh        # Builds Electron installer for current platform
 ```
 
-### Frontend Commands
+Or manually:
 ```bash
-docker compose exec frontend npm run lint           # ESLint
-docker compose exec frontend npm run build          # Production build
-docker compose run --rm frontend npm install <pkg>  # Install new package
+cd backend
+pyinstaller api.spec                    # Build Python backend binary
+
+cd ../frontend
+npm run build:main                      # Compile Electron main process
+npm run build:renderer                  # Build React frontend
+npm run electron-build                  # Create installer for current platform
+npm run electron-build-all              # Build for macOS, Windows, and Linux
 ```
 
-### Database Access
+### Linting
 ```bash
-docker compose exec db psql -U postgres -d astrophotography  # PostgreSQL shell
-```
-
-### Rebuilding Containers
-```bash
-docker compose build              # Rebuild all
-docker compose build backend      # Rebuild specific service
-docker compose up -d --build      # Rebuild and restart
+cd frontend && npm run lint             # ESLint
 ```
 
 ## Architecture
 
-### Backend Structure
-- **`app/models/`**: SQLAlchemy ORM models (objects, images, image_objects, configuration)
-- **`app/routers/`**: FastAPI endpoints (objects, images, indexer, catalogue, configuration)
-- **`app/schemas/`**: Pydantic request/response validation
-- **`app/services/`**: Business logic layer
+### Desktop App Architecture
+```
+Electron Main Process
+    ├── Spawns Python backend (PyInstaller binary in production, uvicorn in dev)
+    ├── Creates BrowserWindow loading React app
+    └── Sets APP_USER_DATA env var for database location
+```
+
+### Backend Structure (`backend/app/`)
+- **`models/`**: SQLAlchemy ORM models
+  - `objects.py`: AstroObject + ObjectAlias
+  - `images.py`: Image metadata with FOV calculations
+  - `image_objects.py`: Many-to-many join table
+  - `configuration.py`: App settings
+  - `projects.py`: Projects, targets, images
+- **`routers/`**: FastAPI endpoints
+  - `objects.py`: CRUD + search + altitude charts
+  - `images.py`: FITS file metadata queries
+  - `indexer.py`: Directory scanning, FITS extraction
+  - `catalogue.py`: OpenNGC, LDN, LBN imports
+  - `configuration.py`: Location, timezone settings
+  - `projects.py`: Project management
+  - `files.py`: File browser for directory picking
+- **`schemas/`**: Pydantic request/response validation
+- **`services/`**: Business logic layer
   - `fits_extractor.py`: Parses FITS headers using astropy
   - `name_resolver.py`: Resolves object names (local DB first, then Telescopius API)
   - `indexer.py`: Orchestrates directory scanning and metadata extraction
   - `fov_matcher.py`: Detects objects within image field of view using WCS coordinates
   - `catalogue_importer.py`: Imports external catalogues (OpenNGC, LDN, LBN)
+  - `visibility_service.py`: Altitude/azimuth calculations with astroplan
+  - `project_service.py`: Project management logic
 
 ### Database Schema
 - **objects**: Astronomical objects with coordinates, magnitude, type, constellation
 - **object_aliases**: Multiple names per object (Messier, NGC, IC, etc.)
 - **images**: FITS file metadata (exposure, filter, telescope, camera, FOV)
 - **image_objects**: Many-to-many join with association type (`primary` or `in_fov`)
-- **configurations**: Application settings stored as JSONB
+- **configurations**: Application settings stored as JSON
+- **projects**: Astrophotography projects with targets
+- **project_targets**: Project-to-object relationships
+- **project_images**: Project-to-image relationships
 
-### Frontend Structure
-- **`src/api/client.ts`**: Type-safe Axios client with namespaced functions (`objectsApi`, `imagesApi`, etc.)
-- **`src/pages/`**: Main page components (Dashboard, Objects, Images, Indexer, Catalogue, Settings)
-- **`src/components/`**: Reusable components (AltitudeChart, ImageTable, ObjectCard)
+### Frontend Structure (`frontend/src/`)
+- **`api/client.ts`**: Type-safe Axios client with namespaced functions (`objectsApi`, `imagesApi`, `projectsApi`, etc.)
+- **`pages/`**: Page components (Dashboard, Objects, Images, Indexer, Catalogue, Projects, Settings)
+- **`components/`**: Reusable components (AltitudeChart, ImageTable, ObjectCard, FilePicker, ProjectCard)
+
+### Electron Structure (`frontend/`)
+- **`electron-main.cts`**: Main process - spawns backend, creates window, manages lifecycle
+- **`preload.ts`**: Preload script for context isolation
 
 ## Key Patterns
 
 - **Service layer**: Business logic in services, routers are thin validation + service calls
 - **Object resolution**: `NameResolver` checks local DB first, falls back to Telescopius API with caching
 - **Image-object relationships**: Images can have a primary target and multiple "in_fov" objects
-- **Full-text search**: PostgreSQL trigram indexes on object/alias names for fuzzy search
+- **Dynamic database path**: Electron sets `APP_USER_DATA` env var, backend creates SQLite DB in user's app data directory
+- **Migrations at startup**: Alembic runs automatically when backend starts
 
 ## Environment Variables
 
-- `DATABASE_URL`: PostgreSQL connection string (required)
+- `APP_USER_DATA`: User data directory (set by Electron, contains database)
 - `TELESCOPIUS_API_KEY`: Optional API key for Telescopius rate limiting
 - `TELESCOPIUS_API_URL`: Telescopius API base URL (default: https://telescopius.com/api)
+
+## Database Location
+
+- **Development**: `./astrophotography.db` in project root (or backend directory)
+- **Production (Electron)**:
+  - macOS: `~/.config/astrophotography_db/database.db`
+  - Windows: `%APPDATA%/Local/astrophotography_db/database.db`
+  - Linux: `~/.config/astrophotography_db/database.db`
+
+## Build Outputs
+
+- **macOS**: DMG installer + ZIP
+- **Windows**: NSIS installer + portable EXE
+- **Linux**: AppImage + DEB package
+
+Installers are output to `frontend/dist/`.
