@@ -1,5 +1,6 @@
 import { ReactNode, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import appIcon from '../../assets/Database App Icon Light300.png'
 
 interface LayoutProps {
   children: ReactNode
@@ -26,6 +27,7 @@ export default function Layout({ children }: LayoutProps) {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <Link to="/" className="flex items-center">
+                <img src={appIcon} alt="AstroDB" className="h-8 w-8 mr-2" />
                 <span className="text-xl font-bold text-blue-400">Astro</span>
                 <span className="text-xl font-bold text-gray-100">DB</span>
               </Link>
