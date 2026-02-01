@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { configApi, SavedLocation, SavedLocationCreate } from '../api/client'
+import { configApi, SavedLocation, SavedLocationCreate, TelescopiusApiKeyConfig } from '../api/client'
 
 const COMMON_TIMEZONES = [
   { value: 'UTC', label: 'UTC' },
@@ -50,6 +50,15 @@ export default function SettingsPage() {
   const { data: locationsConfig, isLoading } = useQuery({
     queryKey: ['config', 'locations'],
     queryFn: configApi.getLocations,
+  })
+
+  // Telescopius API key state
+  const [apiKeyInput, setApiKeyInput] = useState('')
+  const [showApiKey, setShowApiKey] = useState(false)
+
+  const { data: apiKeyConfig, isLoading: isLoadingApiKey } = useQuery({
+    queryKey: ['config', 'telescopius-api-key'],
+    queryFn: configApi.getTelescopiusApiKey,
   })
 
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -103,6 +112,29 @@ export default function SettingsPage() {
     },
     onError: (error: Error) => {
       showMessage('error', error.message || 'Failed to set active location')
+    },
+  })
+
+  const setApiKeyMutation = useMutation({
+    mutationFn: (config: TelescopiusApiKeyConfig) => configApi.setTelescopiusApiKey(config),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'telescopius-api-key'] })
+      setApiKeyInput('')
+      showMessage('success', 'Telescopius API key saved successfully')
+    },
+    onError: (error: Error) => {
+      showMessage('error', error.message || 'Failed to save API key')
+    },
+  })
+
+  const deleteApiKeyMutation = useMutation({
+    mutationFn: () => configApi.deleteTelescopiusApiKey(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'telescopius-api-key'] })
+      showMessage('success', 'Telescopius API key removed')
+    },
+    onError: (error: Error) => {
+      showMessage('error', error.message || 'Failed to remove API key')
     },
   })
 
@@ -396,6 +428,95 @@ export default function SettingsPage() {
               </div>
             )}
           </>
+        )}
+      </div>
+
+      {/* Telescopius API Key Section */}
+      <div className="card">
+        <div className="mb-4">
+          <h2 className="text-xl font-semibold">Telescopius API Key</h2>
+          <p className="text-gray-400 text-sm mt-1">
+            Configure your Telescopius API key for automatic object name resolution.
+            Get your API key from{' '}
+            <a
+              href="https://telescopius.com/api"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline"
+            >
+              telescopius.com/api
+            </a>
+          </p>
+        </div>
+
+        {isLoadingApiKey ? (
+          <p className="text-gray-400">Loading...</p>
+        ) : (
+          <div className="space-y-4">
+            {apiKeyConfig?.api_key ? (
+              <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex-1">
+                    <div className="text-sm text-gray-400 mb-1">Current API Key</div>
+                    <div className="font-mono text-sm">
+                      {showApiKey ? apiKeyConfig.api_key : '•'.repeat(Math.min(apiKeyConfig.api_key.length, 32))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      {showApiKey ? 'Hide' : 'Show'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('Remove the Telescopius API key? Object name resolution will fall back to mock data.')) {
+                          deleteApiKeyMutation.mutate()
+                        }
+                      }}
+                      disabled={deleteApiKeyMutation.isPending}
+                      className="btn btn-secondary btn-sm text-red-400 hover:text-red-300"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-yellow-900/20 rounded-lg border border-yellow-700/50">
+                <p className="text-yellow-300 text-sm">
+                  No API key configured. Object name resolution will use mock data for common objects only.
+                </p>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                {apiKeyConfig?.api_key ? 'Update API Key' : 'Add API Key'}
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="password"
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  placeholder="Enter your Telescopius API key"
+                  className="input flex-1"
+                />
+                <button
+                  onClick={() => {
+                    if (apiKeyInput.trim()) {
+                      setApiKeyMutation.mutate({ api_key: apiKeyInput.trim() })
+                    }
+                  }}
+                  disabled={!apiKeyInput.trim() || setApiKeyMutation.isPending}
+                  className="btn btn-primary w-full sm:w-auto"
+                >
+                  {setApiKeyMutation.isPending ? 'Saving...' : 'Save API Key'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -56,6 +56,11 @@ class TimezoneConfig(BaseModel):
     timezone: str = Field(..., description="IANA timezone identifier (e.g. 'America/New_York', 'Europe/London')")
 
 
+class TelescopiusApiKeyConfig(BaseModel):
+    """Telescopius API key configuration."""
+    api_key: str = Field("", description="Telescopius API key for object name resolution")
+
+
 class ConfigurationBase(BaseModel):
     """Base configuration schema."""
     key: str = Field(..., max_length=100)

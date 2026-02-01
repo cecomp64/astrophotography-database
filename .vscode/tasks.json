@@ -51,7 +51,7 @@
 		{
 			"label": "Start Backend",
 			"type": "shell",
-			"command": "cd backend && source ./venv/bin/activate && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --host 127.0.0.1 --port 8833",
+			"command": "cd backend && source ./venv/bin/activate && pip install -r requirements.txt && alembic upgrade head && uvicorn app.main:app --host 127.0.0.1 --port 8833 --log-level debug --access-log",
 			"problemMatcher": [],
 			"group": "none",
 			"detail": "Run the backend application"

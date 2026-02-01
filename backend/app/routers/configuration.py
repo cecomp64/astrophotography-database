@@ -15,6 +15,7 @@ from app.schemas.configuration import (
     SavedLocation,
     SavedLocationCreate,
     SavedLocationUpdate,
+    TelescopiusApiKeyConfig,
 )
 
 router = APIRouter(prefix="/config", tags=["configuration"])
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/config", tags=["configuration"])
 LOCATION_KEY = "location"
 LOCATIONS_KEY = "locations"
 TIMEZONE_KEY = "timezone"
+TELESCOPIUS_API_KEY = "telescopius_api_key"
 
 
 @router.get("", response_model=list[ConfigurationResponse])
@@ -309,3 +311,44 @@ def set_timezone(timezone_config: TimezoneConfig, db: Session = Depends(get_db))
     db.commit()
     db.refresh(db_config)
     return TimezoneConfig(**db_config.value)
+
+
+# Telescopius API key endpoints
+
+@router.get("/telescopius-api-key/", response_model=TelescopiusApiKeyConfig)
+def get_telescopius_api_key(db: Session = Depends(get_db)):
+    """Get the Telescopius API key configuration."""
+    config = db.query(Configuration).filter(Configuration.key == TELESCOPIUS_API_KEY).first()
+    if not config:
+        return TelescopiusApiKeyConfig(api_key="")
+    return TelescopiusApiKeyConfig(**config.value)
+
+
+@router.put("/telescopius-api-key/", response_model=TelescopiusApiKeyConfig)
+def set_telescopius_api_key(api_key_config: TelescopiusApiKeyConfig, db: Session = Depends(get_db)):
+    """Set the Telescopius API key configuration."""
+    db_config = db.query(Configuration).filter(Configuration.key == TELESCOPIUS_API_KEY).first()
+
+    if db_config:
+        db_config.value = api_key_config.model_dump()
+    else:
+        db_config = Configuration(
+            key=TELESCOPIUS_API_KEY,
+            value=api_key_config.model_dump(),
+            description="Telescopius API key for object name resolution",
+        )
+        db.add(db_config)
+
+    db.commit()
+    db.refresh(db_config)
+    return TelescopiusApiKeyConfig(**db_config.value)
+
+
+@router.delete("/telescopius-api-key/")
+def delete_telescopius_api_key(db: Session = Depends(get_db)):
+    """Delete the Telescopius API key configuration."""
+    db_config = db.query(Configuration).filter(Configuration.key == TELESCOPIUS_API_KEY).first()
+    if db_config:
+        db.delete(db_config)
+        db.commit()
+    return {"message": "Telescopius API key deleted successfully"}

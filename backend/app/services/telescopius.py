@@ -29,9 +29,18 @@ class TelescopiusClient:
     Client for the Telescopius API using the official telescopius-api package.
     """
 
-    def __init__(self):
-        settings = get_settings()
-        self.api_key = settings.telescopius_api_key
+    def __init__(self, api_key: Optional[str] = None):
+        """
+        Initialize the Telescopius client.
+
+        Args:
+            api_key: Optional API key. If not provided, falls back to env var.
+        """
+        if api_key:
+            self.api_key = api_key
+        else:
+            settings = get_settings()
+            self.api_key = settings.telescopius_api_key
         self._executor = ThreadPoolExecutor(max_workers=2)
         self._client: Optional[OfficialTelescopiusClient] = None
 

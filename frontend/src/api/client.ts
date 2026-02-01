@@ -239,6 +239,10 @@ export interface TimezoneConfig {
   timezone: string
 }
 
+export interface TelescopiusApiKeyConfig {
+  api_key: string
+}
+
 export interface AltitudeDataPoint {
   time: string
   altitude: number
@@ -622,6 +626,21 @@ export const configApi = {
   setTimezone: async (timezone: TimezoneConfig) => {
     const response = await apiClient.put<TimezoneConfig>('/config/timezone/', timezone)
     return response.data
+  },
+
+  // Telescopius API key
+  getTelescopiusApiKey: async () => {
+    const response = await apiClient.get<TelescopiusApiKeyConfig>('/config/telescopius-api-key/')
+    return response.data
+  },
+
+  setTelescopiusApiKey: async (config: TelescopiusApiKeyConfig) => {
+    const response = await apiClient.put<TelescopiusApiKeyConfig>('/config/telescopius-api-key/', config)
+    return response.data
+  },
+
+  deleteTelescopiusApiKey: async () => {
+    await apiClient.delete('/config/telescopius-api-key/')
   },
 }
 

@@ -4,10 +4,31 @@ from sqlalchemy import or_, func
 import logging
 
 from app.models import AstroObject, ObjectAlias
+from app.models.configuration import Configuration
 from app.services.telescopius import TelescopiusClient, MockTelescopiusClient, TelescopiusObject
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def get_telescopius_api_key(db: Session) -> str:
+    """
+    Get the Telescopius API key, checking database first then falling back to env var.
+
+    Args:
+        db: Database session
+
+    Returns:
+        API key string (empty string if not configured)
+    """
+    # First check database configuration
+    config = db.query(Configuration).filter(Configuration.key == "telescopius_api_key").first()
+    if config and config.value and config.value.get("api_key"):
+        return config.value.get("api_key", "")
+
+    # Fall back to environment variable
+    settings = get_settings()
+    return settings.telescopius_api_key
 
 
 class NameResolver:
@@ -42,13 +63,15 @@ class NameResolver:
     def __init__(self, db: Session, use_mock: bool = False):
         self.db = db
         self.failed_lookups = set()  # Cache failed Telescopius lookups to avoid retrying
-        settings = get_settings()
+
+        # Get API key from database first, then fall back to env var
+        api_key = get_telescopius_api_key(db)
 
         # Use mock client if no API key is configured or explicitly requested
-        if use_mock or not settings.telescopius_api_key:
+        if use_mock or not api_key:
             self.client = MockTelescopiusClient()
         else:
-            self.client = TelescopiusClient()
+            self.client = TelescopiusClient(api_key=api_key)
 
     def resolve(self, name: str, file_path: Optional[str] = None) -> Optional[AstroObject]:
         """
