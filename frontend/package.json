@@ -4,6 +4,10 @@
   "version": "1.0.0",
   "description": "A database application for managing astrophotography images and observations",
   "author": "Astrophotography Database",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cecomp64/astrophotography-database.git"
+  },
   "main": "dist-main/electron-main.cjs",
   "homepage": "./",
   "scripts": {
