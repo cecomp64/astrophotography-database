@@ -1,24 +1,43 @@
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState, useMemo } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import appIcon from '../../assets/Database App Icon Light300.png'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
 
 interface LayoutProps {
   children: ReactNode
 }
 
-const navItems = [
+interface NavItem {
+  path: string
+  label: string
+  pwaOnly?: boolean
+  desktopOnly?: boolean
+}
+
+const allNavItems: NavItem[] = [
   { path: '/', label: 'Dashboard' },
   { path: '/projects', label: 'Projects' },
   { path: '/objects', label: 'Objects' },
   { path: '/images', label: 'Images' },
   { path: '/catalogue', label: 'Catalogue' },
-  { path: '/indexer', label: 'Indexer' },
+  { path: '/indexer', label: 'Indexer', desktopOnly: true },
+  { path: '/sync', label: 'Sync', pwaOnly: true },
   { path: '/settings', label: 'Settings' },
 ]
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const pwa = isPwaMode()
+
+  // Filter nav items based on mode
+  const navItems = useMemo(() => {
+    return allNavItems.filter((item) => {
+      if (pwa && item.desktopOnly) return false
+      if (!pwa && item.pwaOnly) return false
+      return true
+    })
+  }, [pwa])
 
   return (
     <div className="min-h-screen">

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#1e293b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AstroDB" />
+    <meta name="description" content="Browse your astrophotography database offline on any device" />
+    <title>AstroDB - Astrophotography Database</title>
+    <style>
+      /* Prevent FOUC and show loading state */
+      body {
+        background-color: #0f172a;
+        margin: 0;
+      }
+      #root:empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        color: #94a3b8;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      #root:empty::after {
+        content: 'Loading AstroDB...';
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main-pwa.tsx"></script>
+  </body>
+</html>

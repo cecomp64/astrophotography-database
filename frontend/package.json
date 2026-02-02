@@ -25,20 +25,27 @@
     "electron-build-all": "npm run build && electron-builder -mwl",
     "electron-build-mac": "npm run build && electron-builder --mac",
     "electron-build-win": "npm run build && electron-builder --win",
-    "electron-build-linux": "npm run build && electron-builder --linux"
+    "electron-build-linux": "npm run build && electron-builder --linux",
+    "dev:pwa": "vite --config vite.config.pwa.ts",
+    "build:pwa": "vite build --config vite.config.pwa.ts",
+    "preview:pwa": "vite preview --config vite.config.pwa.ts --port 5174"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.17.0",
     "axios": "^1.6.0",
+    "idb": "^8.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.0",
-    "recharts": "^3.7.0"
+    "recharts": "^3.7.0",
+    "sql.js": "^1.10.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
+    "@types/sql.js": "^1.4.9",
+    "vite-plugin-pwa": "^0.20.0",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
     "@vitejs/plugin-react": "^4.2.1",

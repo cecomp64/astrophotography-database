@@ -5,6 +5,7 @@ from app.routers.catalogue import router as catalogue_router
 from app.routers.configuration import router as configuration_router
 from app.routers.projects import router as projects_router
 from app.routers.files import router as files_router
+from app.routers.export import router as export_router
 
 __all__ = [
     "objects_router",
@@ -14,4 +15,5 @@ __all__ = [
     "configuration_router",
     "projects_router",
     "files_router",
+    "export_router",
 ]

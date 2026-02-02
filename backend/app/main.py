@@ -11,8 +11,9 @@ from sqlalchemy import create_engine # Ensure this is imported
 from app.config import get_settings
 from app.database import engine, Base
 from app.routers import (
-    objects_router, images_router, indexer_router, 
-    catalogue_router, configuration_router, projects_router, files_router
+    objects_router, images_router, indexer_router,
+    catalogue_router, configuration_router, projects_router, files_router,
+    export_router
 )
 
 # Configure logging
@@ -92,13 +93,14 @@ app = FastAPI(
 async def startup_event():
     logger.info("Backend is now serving requests.")
 
-# Configure CORS
+# Configure CORS - allow any origin for PWA sync from GitHub Pages or other hosts
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Original-Size", "X-Checksum", "X-Last-Modified"],
 )
 
 # Include routers with the required /api prefix
@@ -109,6 +111,7 @@ app.include_router(catalogue_router, prefix="/api")
 app.include_router(configuration_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
+app.include_router(export_router, prefix="/api")
 
 @app.get("/")
 def root():
