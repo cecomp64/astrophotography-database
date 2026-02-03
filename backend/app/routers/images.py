@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, literal_column, or_
 from typing import Optional
 from datetime import datetime
 
@@ -176,95 +176,138 @@ def get_grouped_images(
     object_id: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Get images grouped by date, target, and telescope with pagination."""
-    query = db.query(Image)
+    """Get images grouped by date, target, and telescope with pagination.
+
+    Uses SQL-level aggregation for better performance with large datasets.
+    """
+    # Build base filter conditions
+    filters = [Image.date_taken.isnot(None)]
 
     if telescope:
-        query = query.filter(Image.telescope.ilike(f"%{telescope}%"))
+        filters.append(Image.telescope.ilike(f"%{telescope}%"))
 
     if camera:
-        query = query.filter(Image.camera.ilike(f"%{camera}%"))
+        filters.append(Image.camera.ilike(f"%{camera}%"))
 
     if object_id:
-        # Filter by object via either legacy FK or association table
-        query = query.filter(
+        filters.append(
             (Image.object_id == object_id) |
             Image.image_objects.any(ImageObject.object_id == object_id)
         )
 
-    images = query.order_by(Image.date_taken.desc()).all()
+    # Use SQLite date function for grouping
+    date_expr = func.date(Image.date_taken).label("session_date")
+    telescope_expr = func.coalesce(Image.telescope, literal_column("'Unknown'")).label("telescope_name")
 
-    # Group by (date, target, telescope)
-    groups: dict[tuple, dict] = defaultdict(lambda: {
-        "images": [],
-        "subs": defaultdict(int),  # (filter_name, exposure_time) -> count
-        "cameras": set(),
-        "total_exposure": 0.0,
-        "target_id": None,
-        "target_name": None,
-    })
+    # Step 1: Get paginated group keys with basic aggregations
+    groups_query = (
+        db.query(
+            date_expr,
+            Image.object_id,
+            telescope_expr,
+            func.count(Image.id).label("total_frames"),
+            func.sum(func.coalesce(Image.exposure_time, 0)).label("total_exposure"),
+            func.group_concat(func.distinct(Image.camera)).label("cameras"),
+            func.group_concat(Image.id).label("image_ids"),
+        )
+        .filter(*filters)
+        .group_by(func.date(Image.date_taken), Image.object_id, func.coalesce(Image.telescope, literal_column("'Unknown'")))
+        .order_by(func.date(Image.date_taken).desc())
+    )
 
-    for img in images:
-        # Extract date portion only
-        date_str = img.date_taken.strftime("%Y-%m-%d") if img.date_taken else "Unknown"
-        target_name = img.object.primary_name if img.object else None
-        telescope_name = img.telescope or "Unknown"
-
-        key = (date_str, target_name, telescope_name)
-        group = groups[key]
-
-        group["images"].append(img)
-        group["target_id"] = img.object_id
-        group["target_name"] = target_name
-
-        if img.exposure_time:
-            group["total_exposure"] += img.exposure_time
-            # Group by (filter, exposure_time) tuple
-            sub_key = (img.filter_name, img.exposure_time)
-            group["subs"][sub_key] += 1
-
-        if img.camera:
-            group["cameras"].add(img.camera)
-
-    # Convert to response format
-    all_groups = []
-    for (date_str, target_name, telescope_name), group in groups.items():
-        # Build subs list sorted by filter name then exposure time
-        subs = []
-        for (filter_name, exposure_time), count in group["subs"].items():
-            subs.append(SubExposureStats(
-                filter_name=filter_name,
-                exposure_time=exposure_time,
-                count=count,
-                total_exposure=count * exposure_time,
-            ))
-        # Sort: by filter name (None last), then by exposure time
-        subs.sort(key=lambda s: (s.filter_name is None, s.filter_name or "", s.exposure_time))
-
-        all_groups.append(ImageGroup(
-            date=date_str,
-            target_name=target_name,
-            target_id=group["target_id"],
-            telescope=telescope_name if telescope_name != "Unknown" else None,
-            total_frames=len(group["images"]),
-            total_exposure_seconds=group["total_exposure"],
-            subs=subs,
-            cameras=sorted(group["cameras"]),
-            image_ids=[img.id for img in group["images"]],
-        ))
-
-    # Sort by date descending, then by target name
-    all_groups.sort(key=lambda g: (g.date, g.target_name or ""), reverse=True)
+    # Get total count before pagination
+    total = groups_query.count()
 
     # Apply pagination
-    total = len(all_groups)
-    paginated_groups = all_groups[skip:skip + limit]
+    group_rows = groups_query.offset(skip).limit(limit).all()
+
+    if not group_rows:
+        return ImageGroupsResponse(total=total, skip=skip, limit=limit, groups=[])
+
+    # Step 2: For each group, get target name and sub-exposure breakdown
+    # Build a lookup for object names
+    object_ids = set(r.object_id for r in group_rows if r.object_id)
+    object_names = {}
+    if object_ids:
+        objects = db.query(AstroObject.id, AstroObject.primary_name).filter(AstroObject.id.in_(object_ids)).all()
+        object_names = {obj.id: obj.primary_name for obj in objects}
+
+    # Step 3: Get sub-exposure stats for these specific groups
+    # Build conditions to match the paginated groups
+    group_conditions = []
+    for row in group_rows:
+        cond = (
+            (func.date(Image.date_taken) == row.session_date) &
+            (func.coalesce(Image.telescope, literal_column("'Unknown'")) == row.telescope_name)
+        )
+        if row.object_id is not None:
+            cond = cond & (Image.object_id == row.object_id)
+        else:
+            cond = cond & (Image.object_id.is_(None))
+        group_conditions.append(cond)
+
+    # Query sub-exposures for the paginated groups
+    subs_query = (
+        db.query(
+            func.date(Image.date_taken).label("session_date"),
+            Image.object_id,
+            func.coalesce(Image.telescope, literal_column("'Unknown'")).label("telescope_name"),
+            Image.filter_name,
+            Image.exposure_time,
+            func.count(Image.id).label("frame_count"),
+        )
+        .filter(or_(*group_conditions))
+        .group_by(
+            func.date(Image.date_taken),
+            Image.object_id,
+            func.coalesce(Image.telescope, literal_column("'Unknown'")),
+            Image.filter_name,
+            Image.exposure_time,
+        )
+    )
+    subs_rows = subs_query.all()
+
+    # Build a lookup for subs by group key
+    subs_by_group: dict[tuple, list] = defaultdict(list)
+    for sub in subs_rows:
+        key = (sub.session_date, sub.object_id, sub.telescope_name)
+        if sub.exposure_time is not None:
+            subs_by_group[key].append(SubExposureStats(
+                filter_name=sub.filter_name,
+                exposure_time=sub.exposure_time,
+                count=sub.frame_count,
+                total_exposure=sub.exposure_time * sub.frame_count,
+            ))
+
+    # Build response
+    groups = []
+    for row in group_rows:
+        key = (row.session_date, row.object_id, row.telescope_name)
+        subs = subs_by_group.get(key, [])
+        # Sort subs: by filter name (None last), then by exposure time
+        subs.sort(key=lambda s: (s.filter_name is None, s.filter_name or "", s.exposure_time))
+
+        # Parse cameras and image_ids from comma-separated strings
+        cameras = sorted(set(row.cameras.split(","))) if row.cameras else []
+        image_ids = [int(x) for x in row.image_ids.split(",")] if row.image_ids else []
+
+        groups.append(ImageGroup(
+            date=row.session_date,
+            target_name=object_names.get(row.object_id),
+            target_id=row.object_id,
+            telescope=row.telescope_name if row.telescope_name != "Unknown" else None,
+            total_frames=row.total_frames,
+            total_exposure_seconds=row.total_exposure or 0,
+            subs=subs,
+            cameras=cameras,
+            image_ids=image_ids,
+        ))
 
     return ImageGroupsResponse(
         total=total,
         skip=skip,
         limit=limit,
-        groups=paginated_groups,
+        groups=groups,
     )
 
 

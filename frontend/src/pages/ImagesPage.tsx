@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { imagesApi, objectsApi } from '../api/client'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { imagesApi, objectsApi, ImageGroup } from '../api/client'
 import ImageTable from '../components/ImageTable'
 import SessionCard from '../components/SessionCard'
 
@@ -14,8 +15,9 @@ export default function ImagesPage() {
   const [telescope, setTelescope] = useState('')
   const [camera, setCamera] = useState('')
   const [objectId, setObjectId] = useState<number | null>(null)
-  const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
+
+  const parentRef = useRef<HTMLDivElement>(null)
 
   const { data: images, isLoading: isLoadingImages } = useQuery({
     queryKey: ['images', filterName, telescope, limit],
@@ -28,28 +30,76 @@ export default function ImagesPage() {
     enabled: viewMode === 'list',
   })
 
-  const { data: grouped, isLoading: isLoadingGrouped } = useQuery({
-    queryKey: ['imagesGrouped', telescope, camera, objectId, page],
-    queryFn: () =>
+  const {
+    data: groupedData,
+    isLoading: isLoadingGrouped,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['imagesGroupedInfinite', telescope, camera, objectId],
+    queryFn: ({ pageParam = 0 }) =>
       imagesApi.getGrouped({
-        skip: page * PAGE_SIZE,
+        skip: pageParam * PAGE_SIZE,
         limit: PAGE_SIZE,
         telescope: telescope || undefined,
         camera: camera || undefined,
         object_id: objectId || undefined,
       }),
+    getNextPageParam: (lastPage, allPages) => {
+      const totalLoaded = allPages.length * PAGE_SIZE
+      return totalLoaded < lastPage.total ? allPages.length : undefined
+    },
+    initialPageParam: 0,
     enabled: viewMode === 'grouped',
   })
 
   const { data: objectsWithImages } = useQuery({
     queryKey: ['objectsWithImages'],
     queryFn: () => objectsApi.list({ limit: 500, primary_only: true }),
+    staleTime: 5 * 60 * 1000,
   })
 
   const { data: stats } = useQuery({
     queryKey: ['imageStats'],
     queryFn: imagesApi.getStats,
+    staleTime: 5 * 60 * 1000,
   })
+
+  // Flatten all pages into a single array
+  const allGroups: ImageGroup[] = groupedData?.pages.flatMap(page => page.groups) ?? []
+  const totalGroups = groupedData?.pages[0]?.total ?? 0
+
+  // Virtual list setup
+  const rowVirtualizer = useVirtualizer({
+    count: hasNextPage ? allGroups.length + 1 : allGroups.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 180, // Estimated height of SessionCard
+    overscan: 5,
+  })
+
+  // Load more when scrolling near the end
+  const virtualItems = rowVirtualizer.getVirtualItems()
+  const lastItem = virtualItems[virtualItems.length - 1]
+
+  useEffect(() => {
+    if (!lastItem) return
+
+    if (
+      lastItem.index >= allGroups.length - 1 &&
+      hasNextPage &&
+      !isFetchingNextPage
+    ) {
+      fetchNextPage()
+    }
+  }, [lastItem, hasNextPage, isFetchingNextPage, fetchNextPage, allGroups.length])
+
+  const resetFilters = useCallback(() => {
+    // Reset scroll position when filters change
+    if (parentRef.current) {
+      parentRef.current.scrollTop = 0
+    }
+  }, [])
 
   const isLoading = viewMode === 'grouped' ? isLoadingGrouped : isLoadingImages
 
@@ -92,7 +142,7 @@ export default function ImagesPage() {
           value={telescope}
           onChange={(e) => {
             setTelescope(e.target.value)
-            setPage(0)
+            resetFilters()
           }}
           className="input"
         >
@@ -111,7 +161,7 @@ export default function ImagesPage() {
               value={camera}
               onChange={(e) => {
                 setCamera(e.target.value)
-                setPage(0)
+                resetFilters()
               }}
               className="input"
             >
@@ -128,14 +178,13 @@ export default function ImagesPage() {
               value={objectId?.toString() || ''}
               onChange={(e) => {
                 setObjectId(e.target.value ? parseInt(e.target.value) : null)
-                setPage(0)
+                resetFilters()
               }}
               className="input"
             >
               <option value="">All Objects</option>
               {objectsWithImages &&
-                objectsWithImages
-                  .filter((obj) => (obj.image_count ?? 0) > 0)
+                [...objectsWithImages]
                   .sort((a, b) => a.primary_name.localeCompare(b.primary_name))
                   .map((obj) => (
                     <option key={obj.id} value={obj.id}>
@@ -180,37 +229,62 @@ export default function ImagesPage() {
         <div className="text-gray-400 py-8 text-center">Loading...</div>
       ) : viewMode === 'grouped' ? (
         <div className="space-y-4">
-          {grouped && grouped.groups.length > 0 ? (
+          {allGroups.length > 0 ? (
             <>
               <div className="flex justify-between items-center text-sm text-gray-400">
                 <span>
-                  Showing {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, grouped.total)} of {grouped.total} sessions
+                  {allGroups.length} of {totalGroups} sessions loaded
                 </span>
+                {isFetchingNextPage && (
+                  <span className="text-blue-400">Loading more...</span>
+                )}
               </div>
-              {grouped.groups.map((session, index) => (
-                <SessionCard key={`${session.date}-${session.target_name}-${session.telescope}-${index}`} session={session} />
-              ))}
-              {grouped.total > PAGE_SIZE && (
-                <div className="flex justify-center items-center gap-4 pt-4">
-                  <button
-                    onClick={() => setPage(p => Math.max(0, p - 1))}
-                    disabled={page === 0}
-                    className="px-4 py-2 bg-space-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-space-600 transition-colors"
-                  >
-                    Previous
-                  </button>
-                  <span className="text-gray-400">
-                    Page {page + 1} of {Math.ceil(grouped.total / PAGE_SIZE)}
-                  </span>
-                  <button
-                    onClick={() => setPage(p => p + 1)}
-                    disabled={(page + 1) * PAGE_SIZE >= grouped.total}
-                    className="px-4 py-2 bg-space-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-space-600 transition-colors"
-                  >
-                    Next
-                  </button>
+
+              <div
+                ref={parentRef}
+                className="overflow-auto"
+                style={{ height: 'calc(100vh - 220px)' }}
+              >
+                <div
+                  style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                  }}
+                >
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const isLoaderRow = virtualRow.index >= allGroups.length
+                    const session = allGroups[virtualRow.index]
+
+                    return (
+                      <div
+                        key={virtualRow.key}
+                        data-index={virtualRow.index}
+                        ref={rowVirtualizer.measureElement}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                        className="pb-4"
+                      >
+                        {isLoaderRow ? (
+                          <div className="text-center py-4 text-gray-400">
+                            {hasNextPage ? 'Loading more...' : 'End of list'}
+                          </div>
+                        ) : (
+                          <SessionCard
+                            key={`${session.date}-${session.target_name}-${session.telescope}`}
+                            session={session}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-              )}
+              </div>
             </>
           ) : (
             <div className="card text-center py-8 text-gray-400">

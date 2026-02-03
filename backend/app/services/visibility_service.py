@@ -1,6 +1,6 @@
 """Service for calculating object visibility and optimal imaging times."""
 
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
 
@@ -233,12 +233,13 @@ class VisibilityService:
         )
         current_altitude = float(current_altaz.alt.deg)
 
-        # Create time array: 24 hours centered on local midnight
-        local_midnight = datetime(
+        # Create time array: 24 hours centered on NEXT midnight (between target_date and target_date+1)
+        # This ensures we cover tonight's darkness (evening of target_date → morning of target_date+1)
+        next_midnight = datetime(
             target_date.year, target_date.month, target_date.day,
             0, 0, 0, tzinfo=self._timezone
-        )
-        utc_midnight = local_midnight.astimezone(timezone.utc)
+        ) + timedelta(days=1)
+        utc_midnight = next_midnight.astimezone(timezone.utc)
 
         # Generate times from 12 hours before to 12 hours after local midnight
         times_hours = np.linspace(-12, 12, 145)  # Every 10 minutes

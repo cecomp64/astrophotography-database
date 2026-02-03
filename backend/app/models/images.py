@@ -48,6 +48,10 @@ class Image(Base):
         Index("ix_images_date_taken", "date_taken"),
         Index("ix_images_object_id", "object_id"),
         Index("ix_images_filter_name", "filter_name"),
+        Index("ix_images_telescope", "telescope"),
+        Index("ix_images_camera", "camera"),
+        # Composite index for grouped queries (date + object + telescope)
+        Index("ix_images_grouped", "date_taken", "object_id", "telescope"),
     )
 
     @property
