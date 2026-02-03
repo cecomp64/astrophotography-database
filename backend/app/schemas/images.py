@@ -97,3 +97,11 @@ class ImageGroup(BaseModel):
     subs: list[SubExposureStats]  # grouped by (filter, exposure_time)
     cameras: list[str]
     image_ids: list[int]
+
+
+class ImageGroupsResponse(BaseModel):
+    """Paginated response for image groups."""
+    total: int
+    skip: int
+    limit: int
+    groups: list[ImageGroup]

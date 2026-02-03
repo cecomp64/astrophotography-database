@@ -375,9 +375,9 @@ export default function ProjectDetailPage() {
     enabled: targetSearch.length >= 2,
   })
 
-  const { data: imageGroups } = useQuery({
+  const { data: imageGroupsResponse } = useQuery({
     queryKey: ['imageGroups'],
-    queryFn: () => imagesApi.getGrouped(),
+    queryFn: () => imagesApi.getGrouped({ limit: 100 }),
     enabled: linkingTarget !== null,
   })
 
@@ -830,10 +830,10 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Link Images Modal */}
-      {linkingTarget && imageGroups && (
+      {linkingTarget && imageGroupsResponse && (
         <LinkImagesModal
           target={linkingTarget}
-          imageGroups={imageGroups}
+          imageGroups={imageGroupsResponse.groups}
           onLink={(group) => linkImagesMutation.mutate({ objectId: linkingTarget.object_id, group })}
           onCancel={() => setLinkingTarget(null)}
           isLinking={linkImagesMutation.isPending}

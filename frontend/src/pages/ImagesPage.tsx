@@ -1,15 +1,20 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { imagesApi } from '../api/client'
+import { imagesApi, objectsApi } from '../api/client'
 import ImageTable from '../components/ImageTable'
 import SessionCard from '../components/SessionCard'
 
 type ViewMode = 'grouped' | 'list'
 
+const PAGE_SIZE = 20
+
 export default function ImagesPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('grouped')
   const [filterName, setFilterName] = useState('')
   const [telescope, setTelescope] = useState('')
+  const [camera, setCamera] = useState('')
+  const [objectId, setObjectId] = useState<number | null>(null)
+  const [page, setPage] = useState(0)
   const [limit, setLimit] = useState(50)
 
   const { data: images, isLoading: isLoadingImages } = useQuery({
@@ -24,12 +29,21 @@ export default function ImagesPage() {
   })
 
   const { data: grouped, isLoading: isLoadingGrouped } = useQuery({
-    queryKey: ['imagesGrouped', telescope],
+    queryKey: ['imagesGrouped', telescope, camera, objectId, page],
     queryFn: () =>
       imagesApi.getGrouped({
+        skip: page * PAGE_SIZE,
+        limit: PAGE_SIZE,
         telescope: telescope || undefined,
+        camera: camera || undefined,
+        object_id: objectId || undefined,
       }),
     enabled: viewMode === 'grouped',
+  })
+
+  const { data: objectsWithImages } = useQuery({
+    queryKey: ['objectsWithImages'],
+    queryFn: () => objectsApi.list({ limit: 500, primary_only: true }),
   })
 
   const { data: stats } = useQuery({
@@ -76,7 +90,10 @@ export default function ImagesPage() {
 
         <select
           value={telescope}
-          onChange={(e) => setTelescope(e.target.value)}
+          onChange={(e) => {
+            setTelescope(e.target.value)
+            setPage(0)
+          }}
           className="input"
         >
           <option value="">All Telescopes</option>
@@ -87,6 +104,47 @@ export default function ImagesPage() {
               </option>
             ))}
         </select>
+
+        {viewMode === 'grouped' && (
+          <>
+            <select
+              value={camera}
+              onChange={(e) => {
+                setCamera(e.target.value)
+                setPage(0)
+              }}
+              className="input"
+            >
+              <option value="">All Cameras</option>
+              {stats &&
+                Object.keys(stats.by_camera || {}).map((cam) => (
+                  <option key={cam} value={cam}>
+                    {cam}
+                  </option>
+                ))}
+            </select>
+
+            <select
+              value={objectId?.toString() || ''}
+              onChange={(e) => {
+                setObjectId(e.target.value ? parseInt(e.target.value) : null)
+                setPage(0)
+              }}
+              className="input"
+            >
+              <option value="">All Objects</option>
+              {objectsWithImages &&
+                objectsWithImages
+                  .filter((obj) => (obj.image_count ?? 0) > 0)
+                  .sort((a, b) => a.primary_name.localeCompare(b.primary_name))
+                  .map((obj) => (
+                    <option key={obj.id} value={obj.id}>
+                      {obj.primary_name}
+                    </option>
+                  ))}
+            </select>
+          </>
+        )}
 
         {viewMode === 'list' && (
           <>
@@ -122,10 +180,38 @@ export default function ImagesPage() {
         <div className="text-gray-400 py-8 text-center">Loading...</div>
       ) : viewMode === 'grouped' ? (
         <div className="space-y-4">
-          {grouped && grouped.length > 0 ? (
-            grouped.map((session, index) => (
-              <SessionCard key={`${session.date}-${session.target_name}-${session.telescope}-${index}`} session={session} />
-            ))
+          {grouped && grouped.groups.length > 0 ? (
+            <>
+              <div className="flex justify-between items-center text-sm text-gray-400">
+                <span>
+                  Showing {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, grouped.total)} of {grouped.total} sessions
+                </span>
+              </div>
+              {grouped.groups.map((session, index) => (
+                <SessionCard key={`${session.date}-${session.target_name}-${session.telescope}-${index}`} session={session} />
+              ))}
+              {grouped.total > PAGE_SIZE && (
+                <div className="flex justify-center items-center gap-4 pt-4">
+                  <button
+                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                    className="px-4 py-2 bg-space-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-space-600 transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-gray-400">
+                    Page {page + 1} of {Math.ceil(grouped.total / PAGE_SIZE)}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => p + 1)}
+                    disabled={(page + 1) * PAGE_SIZE >= grouped.total}
+                    className="px-4 py-2 bg-space-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-space-600 transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <div className="card text-center py-8 text-gray-400">
               No imaging sessions found

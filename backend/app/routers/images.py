@@ -6,7 +6,7 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models import Image, AstroObject, ImageObject
-from app.schemas import ImageResponse, ImageUpdate, ImageGroup, SubExposureStats
+from app.schemas import ImageResponse, ImageUpdate, ImageGroup, ImageGroupsResponse, SubExposureStats
 from app.services.fov_matcher import FOVMatcher
 from collections import defaultdict
 
@@ -144,6 +144,14 @@ def get_image_stats(db: Session = Depends(get_db)):
         .all()
     )
 
+    # Images by camera
+    camera_stats = (
+        db.query(Image.camera, func.count(Image.id))
+        .filter(Image.camera.isnot(None))
+        .group_by(Image.camera)
+        .all()
+    )
+
     # Total exposure time
     total_exposure = db.query(func.sum(Image.exposure_time)).scalar() or 0
 
@@ -155,19 +163,34 @@ def get_image_stats(db: Session = Depends(get_db)):
         "total_exposure_hours": round(total_exposure / 3600, 2),
         "by_filter": {f: c for f, c in filter_stats if f},
         "by_telescope": {t: c for t, c in telescope_stats if t},
+        "by_camera": {c: count for c, count in camera_stats if c},
     }
 
 
-@router.get("/grouped", response_model=list[ImageGroup])
+@router.get("/grouped", response_model=ImageGroupsResponse)
 def get_grouped_images(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     telescope: Optional[str] = None,
+    camera: Optional[str] = None,
+    object_id: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Get images grouped by date, target, and telescope."""
+    """Get images grouped by date, target, and telescope with pagination."""
     query = db.query(Image)
 
     if telescope:
         query = query.filter(Image.telescope.ilike(f"%{telescope}%"))
+
+    if camera:
+        query = query.filter(Image.camera.ilike(f"%{camera}%"))
+
+    if object_id:
+        # Filter by object via either legacy FK or association table
+        query = query.filter(
+            (Image.object_id == object_id) |
+            Image.image_objects.any(ImageObject.object_id == object_id)
+        )
 
     images = query.order_by(Image.date_taken.desc()).all()
 
@@ -204,7 +227,7 @@ def get_grouped_images(
             group["cameras"].add(img.camera)
 
     # Convert to response format
-    result = []
+    all_groups = []
     for (date_str, target_name, telescope_name), group in groups.items():
         # Build subs list sorted by filter name then exposure time
         subs = []
@@ -218,7 +241,7 @@ def get_grouped_images(
         # Sort: by filter name (None last), then by exposure time
         subs.sort(key=lambda s: (s.filter_name is None, s.filter_name or "", s.exposure_time))
 
-        result.append(ImageGroup(
+        all_groups.append(ImageGroup(
             date=date_str,
             target_name=target_name,
             target_id=group["target_id"],
@@ -231,9 +254,18 @@ def get_grouped_images(
         ))
 
     # Sort by date descending, then by target name
-    result.sort(key=lambda g: (g.date, g.target_name or ""), reverse=True)
+    all_groups.sort(key=lambda g: (g.date, g.target_name or ""), reverse=True)
 
-    return result
+    # Apply pagination
+    total = len(all_groups)
+    paginated_groups = all_groups[skip:skip + limit]
+
+    return ImageGroupsResponse(
+        total=total,
+        skip=skip,
+        limit=limit,
+        groups=paginated_groups,
+    )
 
 
 @router.get("/{image_id}", response_model=ImageResponse)

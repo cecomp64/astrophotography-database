@@ -85,6 +85,7 @@ export interface ImageStats {
   total_exposure_hours: number
   by_filter: Record<string, number>
   by_telescope: Record<string, number>
+  by_camera: Record<string, number>
 }
 
 export interface SubExposureStats {
@@ -104,6 +105,13 @@ export interface ImageGroup {
   subs: SubExposureStats[]
   cameras: string[]
   image_ids: number[]
+}
+
+export interface ImageGroupsResponse {
+  total: number
+  skip: number
+  limit: number
+  groups: ImageGroup[]
 }
 
 export interface IndexResult {
@@ -451,8 +459,14 @@ export const imagesApi = {
     return response.data
   },
 
-  getGrouped: async (params?: { telescope?: string }) => {
-    const response = await apiClient.get<ImageGroup[]>('/images/grouped', { params })
+  getGrouped: async (params?: {
+    skip?: number
+    limit?: number
+    telescope?: string
+    camera?: string
+    object_id?: number
+  }) => {
+    const response = await apiClient.get<ImageGroupsResponse>('/images/grouped', { params })
     return response.data
   },
 

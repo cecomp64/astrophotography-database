@@ -8,6 +8,7 @@ import {
   ImageObjectAssociation,
   ImageStats,
   ImageGroup,
+  ImageGroupsResponse,
   SubExposureStats,
   Project,
   ProjectDetail,
@@ -244,6 +245,15 @@ export const offlineImagesApi = {
       byTelescope[row.telescope] = row.count
     })
 
+    // Camera stats
+    const cameraRows = query<{ camera: string; count: number }>(
+      "SELECT camera, COUNT(*) as count FROM images WHERE camera IS NOT NULL GROUP BY camera"
+    )
+    const byCamera: Record<string, number> = {}
+    cameraRows.forEach((row) => {
+      byCamera[row.camera] = row.count
+    })
+
     return {
       total_images: totalImages,
       total_objects: totalObjects,
@@ -252,10 +262,17 @@ export const offlineImagesApi = {
       total_exposure_hours: totalExposure / 3600,
       by_filter: byFilter,
       by_telescope: byTelescope,
+      by_camera: byCamera,
     }
   },
 
-  getGrouped: async (params?: { telescope?: string }): Promise<ImageGroup[]> => {
+  getGrouped: async (params?: {
+    skip?: number
+    limit?: number
+    telescope?: string
+    camera?: string
+    object_id?: number
+  }): Promise<ImageGroupsResponse> => {
     let sql = `
       SELECT
         DATE(date_taken) as date,
@@ -272,8 +289,18 @@ export const offlineImagesApi = {
     const sqlParams: unknown[] = []
 
     if (params?.telescope) {
-      sql += ' AND telescope = ?'
-      sqlParams.push(params.telescope)
+      sql += ' AND telescope LIKE ?'
+      sqlParams.push(`%${params.telescope}%`)
+    }
+
+    if (params?.camera) {
+      sql += ' AND camera LIKE ?'
+      sqlParams.push(`%${params.camera}%`)
+    }
+
+    if (params?.object_id) {
+      sql += ' AND object_id = ?'
+      sqlParams.push(params.object_id)
     }
 
     sql += ' GROUP BY DATE(date_taken), object_id, telescope, filter_name, exposure_time'
@@ -344,7 +371,17 @@ export const offlineImagesApi = {
       }
     }
 
-    return Array.from(groups.values())
+    const allGroups = Array.from(groups.values())
+    const skip = params?.skip ?? 0
+    const limit = params?.limit ?? 20
+    const paginatedGroups = allGroups.slice(skip, skip + limit)
+
+    return {
+      total: allGroups.length,
+      skip,
+      limit,
+      groups: paginatedGroups,
+    }
   },
 
   getByIds: async (ids: number[]): Promise<Image[]> => {
