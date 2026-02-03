@@ -389,6 +389,34 @@ export interface WellPlacedProjectsResponse {
   projects: WellPlacedProject[]
 }
 
+// Well-placed objects types
+export interface WellPlacedObject {
+  id: number
+  primary_name: string
+  object_type: string | null
+  constellation: string | null
+  magnitude: number | null
+  ra: number | null
+  dec: number | null
+  image_count: number
+  visibility: VisibilityInfo
+  score: number
+}
+
+export interface WellPlacedObjectsResponse {
+  location_configured: boolean
+  total: number
+  skip: number
+  limit: number
+  objects: WellPlacedObject[]
+}
+
+export interface MiniAltitudeData {
+  data: number[]  // 24 hourly altitude values
+  darkness_start: number | null
+  darkness_end: number | null
+}
+
 // API functions
 export const objectsApi = {
   list: async (params?: { skip?: number; limit?: number; object_type?: string; constellation?: string; primary_only?: boolean }) => {
@@ -423,6 +451,23 @@ export const objectsApi = {
   getAltitude: async (id: number, date?: string) => {
     const params = date ? { chart_date: date } : {}
     const response = await apiClient.get<AltitudeChartData>(`/objects/${id}/altitude`, { params })
+    return response.data
+  },
+
+  getMiniAltitude: async (id: number) => {
+    const response = await apiClient.get<MiniAltitudeData>(`/objects/${id}/altitude/mini`)
+    return response.data
+  },
+
+  getWellPlaced: async (params?: {
+    skip?: number
+    limit?: number
+    min_altitude?: number
+    object_type?: string
+    constellation?: string
+    primary_only?: boolean
+  }) => {
+    const response = await apiClient.get<WellPlacedObjectsResponse>('/objects/dashboard/well-placed', { params })
     return response.data
   },
 }
@@ -547,6 +592,21 @@ export const catalogueApi = {
     search?: string
   }) => {
     const response = await apiClient.get<CatalogueObjectsResponse>('/catalogue/objects', { params })
+    return response.data
+  },
+
+  getWellPlaced: async (params?: {
+    skip?: number
+    limit?: number
+    min_altitude?: number
+    catalog?: string
+    object_type?: string
+    constellation?: string
+    min_magnitude?: number
+    max_magnitude?: number
+    min_size?: number
+  }) => {
+    const response = await apiClient.get<WellPlacedObjectsResponse>('/catalogue/well-placed', { params })
     return response.data
   },
 

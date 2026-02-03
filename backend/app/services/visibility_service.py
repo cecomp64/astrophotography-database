@@ -1,7 +1,7 @@
 """Service for calculating object visibility and optimal imaging times."""
 
 from datetime import datetime, date, timezone, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 from zoneinfo import ZoneInfo
 
 from astropy.coordinates import EarthLocation, AltAz, SkyCoord
@@ -416,3 +416,245 @@ class VisibilityService:
         score += priority * 5
 
         return round(score, 1)
+
+    def get_declination_bounds(self, min_altitude: float = DEFAULT_MIN_ALTITUDE) -> Tuple[float, float]:
+        """
+        Get the declination bounds for objects that can reach min_altitude.
+
+        For an observer at latitude L, an object with declination D has max altitude = 90 - |L - D|.
+        For max_altitude >= min_altitude: |L - D| <= 90 - min_altitude.
+
+        Returns:
+            Tuple of (min_dec, max_dec) in degrees, or (-90, 90) if location not configured.
+        """
+        if not self._location_configured or self._location is None:
+            return (-90.0, 90.0)
+
+        latitude = self._location.lat.deg
+        dec_range = 90.0 - min_altitude
+
+        min_dec = max(-90.0, latitude - dec_range)
+        max_dec = min(90.0, latitude + dec_range)
+
+        return (min_dec, max_dec)
+
+    def get_observer_latitude(self) -> Optional[float]:
+        """Get the observer's latitude in degrees."""
+        if not self._location_configured or self._location is None:
+            return None
+        return float(self._location.lat.deg)
+
+    def calculate_batch_visibility(
+        self,
+        objects: List[Tuple[int, float, float]],  # List of (id, ra, dec)
+        target_date: Optional[date] = None,
+        min_altitude: float = DEFAULT_MIN_ALTITUDE,
+    ) -> Dict[int, Dict[str, Any]]:
+        """
+        Calculate visibility for multiple objects efficiently.
+
+        Uses analytical formulas where possible and processes in batches.
+
+        Args:
+            objects: List of tuples (object_id, ra, dec) with coordinates in degrees.
+            target_date: Date for calculation (defaults to today).
+            min_altitude: Minimum altitude for good imaging.
+
+        Returns:
+            Dict mapping object_id to visibility dict.
+        """
+        if not self._location_configured or self._location is None:
+            return {
+                obj_id: {
+                    "is_visible_tonight": False,
+                    "location_configured": False,
+                    "current_altitude": None,
+                    "max_altitude": None,
+                    "transit_time": None,
+                    "hours_in_darkness": None,
+                }
+                for obj_id, _, _ in objects
+            }
+
+        if not objects:
+            return {}
+
+        target_date = target_date or date.today()
+
+        # Calculate twilight times ONCE for all objects
+        twilight = self.calculate_twilight_times(target_date)
+
+        # Get darkness window in hours from midnight
+        darkness_start_hour = None
+        darkness_end_hour = None
+        if twilight and '_astro_dusk_time' in twilight and '_astro_dawn_time' in twilight:
+            astro_dusk = twilight['_astro_dusk_time']
+            astro_dawn = twilight['_astro_dawn_time']
+
+            # Create reference midnight
+            next_midnight = datetime(
+                target_date.year, target_date.month, target_date.day,
+                0, 0, 0, tzinfo=self._timezone
+            ) + timedelta(days=1)
+            utc_midnight = Time(next_midnight.astimezone(timezone.utc))
+
+            # Hours relative to midnight
+            darkness_start_hour = (astro_dusk - utc_midnight).to(u.hour).value
+            darkness_end_hour = (astro_dawn - utc_midnight).to(u.hour).value
+
+        # Current time
+        now_utc = datetime.now(timezone.utc)
+        current_time = Time(now_utc)
+
+        # Extract coordinates
+        obj_ids = [obj[0] for obj in objects]
+        ras = np.array([obj[1] for obj in objects])
+        decs = np.array([obj[2] for obj in objects])
+
+        # Get observer latitude
+        lat_rad = self._location.lat.rad
+        lat_deg = self._location.lat.deg
+
+        # Calculate max altitude analytically: max_alt = 90 - |lat - dec|
+        max_altitudes = 90.0 - np.abs(lat_deg - decs)
+
+        # Calculate transit times from RA and local sidereal time at midnight
+        next_midnight = datetime(
+            target_date.year, target_date.month, target_date.day,
+            0, 0, 0, tzinfo=self._timezone
+        ) + timedelta(days=1)
+        midnight_time = Time(next_midnight.astimezone(timezone.utc))
+        lst_midnight = midnight_time.sidereal_time('apparent', longitude=self._location.lon).hour  # hours
+
+        # Transit occurs when RA = LST, so hours from midnight = (RA/15 - LST_midnight) mod 24
+        # Adjust to be in range [-12, 12]
+        transit_hours = (ras / 15.0 - lst_midnight) % 24
+        transit_hours = np.where(transit_hours > 12, transit_hours - 24, transit_hours)
+
+        # Create SkyCoord for current altitude calculation (vectorized, single time point)
+        coords = SkyCoord(ra=ras * u.deg, dec=decs * u.deg)
+        current_altaz = coords.transform_to(
+            AltAz(obstime=current_time, location=self._location)
+        )
+        current_altitudes = np.asarray(current_altaz.alt.deg)
+
+        # Calculate hours above min altitude during darkness
+        # Using analytical approximation based on hour angle
+        # Object is above min_alt when: sin(alt) >= sin(min_alt)
+        # sin(alt) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(HA)
+        # Solving for HA: cos(HA) = (sin(min_alt) - sin(lat)*sin(dec)) / (cos(lat)*cos(dec))
+
+        dec_rad = np.radians(decs)
+        min_alt_rad = np.radians(min_altitude)
+
+        sin_lat = np.sin(lat_rad)
+        cos_lat = np.cos(lat_rad)
+        sin_dec = np.sin(dec_rad)
+        cos_dec = np.cos(dec_rad)
+
+        # Calculate the cosine of hour angle at which altitude = min_altitude
+        cos_ha_limit = (np.sin(min_alt_rad) - sin_lat * sin_dec) / (cos_lat * cos_dec + 1e-10)
+
+        # Clamp to valid range
+        cos_ha_limit = np.clip(cos_ha_limit, -1, 1)
+
+        # Hour angle range (in hours) where object is above min_altitude
+        # If cos_ha_limit > 1, never above; if < -1, always above (circumpolar)
+        ha_limit_hours = np.degrees(np.arccos(cos_ha_limit)) / 15.0  # Convert to hours
+
+        # Total hours above min altitude per day = 2 * ha_limit_hours
+        hours_above_total = 2 * ha_limit_hours
+
+        # Calculate overlap with darkness window
+        hours_in_darkness = np.zeros(len(obj_ids))
+
+        if darkness_start_hour is not None and darkness_end_hour is not None:
+            darkness_duration = darkness_end_hour - darkness_start_hour
+
+            for i in range(len(obj_ids)):
+                # Object is above min_alt from (transit - ha_limit) to (transit + ha_limit)
+                rise_hour = transit_hours[i] - ha_limit_hours[i]
+                set_hour = transit_hours[i] + ha_limit_hours[i]
+
+                # Calculate overlap between [rise, set] and [darkness_start, darkness_end]
+                overlap_start = max(rise_hour, darkness_start_hour)
+                overlap_end = min(set_hour, darkness_end_hour)
+
+                if overlap_end > overlap_start:
+                    hours_in_darkness[i] = overlap_end - overlap_start
+                else:
+                    hours_in_darkness[i] = 0.0
+
+        # Build results
+        results = {}
+        for i, obj_id in enumerate(obj_ids):
+            is_visible = bool(hours_in_darkness[i] >= 1.0)
+
+            # Transit time as local time string
+            transit_dt = midnight_time.to_datetime(timezone=timezone.utc) + timedelta(hours=float(transit_hours[i]))
+            transit_local = transit_dt.astimezone(self._timezone)
+
+            results[obj_id] = {
+                "is_visible_tonight": is_visible,
+                "location_configured": True,
+                "current_altitude": round(float(current_altitudes[i]), 1),
+                "max_altitude": round(float(max_altitudes[i]), 1),
+                "transit_time": transit_local.strftime("%H:%M"),
+                "hours_in_darkness": round(float(hours_in_darkness[i]), 1),
+            }
+
+        return results
+
+    def calculate_batch_scores(
+        self,
+        visibility_results: Dict[int, Dict[str, Any]],
+    ) -> Dict[int, float]:
+        """
+        Calculate imaging scores for objects based on pre-computed visibility.
+
+        Args:
+            visibility_results: Dict from calculate_batch_visibility.
+
+        Returns:
+            Dict mapping object_id to score.
+        """
+        scores = {}
+        for obj_id, visibility in visibility_results.items():
+            if not visibility.get("is_visible_tonight"):
+                scores[obj_id] = 0.0
+                continue
+
+            score = 0.0
+
+            # Higher max altitude = better
+            max_alt = visibility.get("max_altitude", 0) or 0
+            score += max_alt * 0.5
+
+            # More hours available during darkness = better
+            hours = visibility.get("hours_in_darkness", 0) or 0
+            score += hours * 10
+
+            # Base progress score (no project context in catalogue)
+            score += 100 * 0.3
+
+            scores[obj_id] = round(score, 1)
+
+        return scores
+
+    def estimate_max_altitude(self, dec: float) -> float:
+        """
+        Estimate maximum possible altitude for an object based on declination.
+
+        This is a quick approximation: max_alt ≈ 90 - |latitude - dec|
+
+        Args:
+            dec: Declination in degrees.
+
+        Returns:
+            Estimated max altitude in degrees.
+        """
+        if not self._location_configured or self._location is None:
+            return 45.0  # Default guess
+
+        latitude = self._location.lat.deg
+        return 90.0 - abs(latitude - dec)

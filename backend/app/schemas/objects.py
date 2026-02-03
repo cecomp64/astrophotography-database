@@ -52,3 +52,49 @@ class ObjectResponse(ObjectBase):
 
     class Config:
         from_attributes = True
+
+
+# --- Visibility & Well-Placed Objects ---
+
+
+class VisibilityInfo(BaseModel):
+    """Visibility information for an astronomical object."""
+
+    is_visible_tonight: bool
+    current_altitude: Optional[float] = None
+    max_altitude: Optional[float] = None
+    transit_time: Optional[str] = None
+    hours_in_darkness: Optional[float] = None
+
+
+class WellPlacedObjectResponse(BaseModel):
+    """Object with visibility data for well-placed queries."""
+
+    id: int
+    primary_name: str
+    object_type: Optional[str] = None
+    constellation: Optional[str] = None
+    magnitude: Optional[float] = None
+    ra: Optional[float] = None
+    dec: Optional[float] = None
+    image_count: int
+    visibility: VisibilityInfo
+    score: float
+
+
+class WellPlacedObjectsListResponse(BaseModel):
+    """Paginated list of well-placed objects."""
+
+    location_configured: bool
+    total: int
+    skip: int
+    limit: int
+    objects: list[WellPlacedObjectResponse]
+
+
+class MiniAltitudeResponse(BaseModel):
+    """Simplified altitude data for sparkline charts."""
+
+    data: list[float]  # 24 hourly altitude values
+    darkness_start: Optional[int] = None  # hour index where darkness begins
+    darkness_end: Optional[int] = None  # hour index where darkness ends

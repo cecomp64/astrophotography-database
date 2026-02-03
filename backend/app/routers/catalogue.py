@@ -5,8 +5,155 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.objects import AstroObject, ObjectAlias
+from app.schemas.objects import (
+    VisibilityInfo,
+    WellPlacedObjectResponse,
+    WellPlacedObjectsListResponse,
+)
+from app.services.visibility_service import VisibilityService
 
 router = APIRouter(prefix="/catalogue", tags=["catalogue"])
+
+
+@router.get("/well-placed", response_model=WellPlacedObjectsListResponse)
+def get_well_placed_catalogue_objects(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    min_altitude: float = Query(30.0, ge=0, le=90, description="Minimum altitude in degrees"),
+    catalog: Optional[str] = Query(None, description="Filter by catalog (NGC, IC, Messier, LDN, LBN)"),
+    object_type: Optional[str] = Query(None, description="Filter by object type"),
+    constellation: Optional[str] = Query(None, description="Filter by constellation"),
+    min_magnitude: Optional[float] = Query(None, description="Minimum magnitude"),
+    max_magnitude: Optional[float] = Query(None, description="Maximum magnitude"),
+    min_size: Optional[float] = Query(None, description="Minimum size in arcminutes"),
+    db: Session = Depends(get_db),
+):
+    """
+    Get catalogue objects that are well-placed for imaging tonight.
+
+    Returns objects that are above the minimum altitude during astronomical darkness
+    for at least 1 hour. Results are sorted by imaging score (higher = better).
+
+    Performance optimizations:
+    - Pre-filters by declination to exclude objects that can never reach min_altitude
+    - Sorts candidates by estimated max altitude before visibility calculation
+    - Uses batch visibility calculations with cached twilight times
+    """
+    visibility_service = VisibilityService(db)
+
+    if not visibility_service.location_configured:
+        return WellPlacedObjectsListResponse(
+            location_configured=False,
+            total=0,
+            skip=skip,
+            limit=limit,
+            objects=[],
+        )
+
+    # Get declination bounds based on observer latitude and min_altitude
+    min_dec, max_dec = visibility_service.get_declination_bounds(min_altitude)
+    observer_lat = visibility_service.get_observer_latitude()
+
+    # Build base query for objects with coordinates, pre-filtered by declination
+    query = db.query(AstroObject).filter(
+        AstroObject.ra.isnot(None),
+        AstroObject.dec.isnot(None),
+        AstroObject.dec >= min_dec,
+        AstroObject.dec <= max_dec,
+    )
+
+    # Apply user filters
+    if catalog:
+        query = query.join(ObjectAlias).filter(ObjectAlias.catalog == catalog)
+
+    if object_type:
+        query = query.filter(AstroObject.object_type.ilike(f"%{object_type}%"))
+
+    if constellation:
+        query = query.filter(AstroObject.constellation.ilike(f"%{constellation}%"))
+
+    if min_magnitude is not None:
+        query = query.filter(AstroObject.magnitude >= min_magnitude)
+
+    if max_magnitude is not None:
+        query = query.filter(AstroObject.magnitude <= max_magnitude)
+
+    if min_size is not None:
+        query = query.filter(AstroObject.size_major >= min_size)
+
+    # Get candidate objects - increased limit since we pre-filter by declination
+    candidates = query.distinct().limit(2000).all()
+
+    if not candidates:
+        return WellPlacedObjectsListResponse(
+            location_configured=True,
+            total=0,
+            skip=skip,
+            limit=limit,
+            objects=[],
+        )
+
+    # Sort candidates by estimated max altitude (best candidates first)
+    # This helps ensure we find the best objects even with early stopping
+    if observer_lat is not None:
+        candidates.sort(
+            key=lambda obj: -(90.0 - abs(observer_lat - obj.dec)),
+            reverse=False  # Already negated, so ascending = descending max_alt
+        )
+
+    # Prepare object data for batch calculation
+    object_data = [(obj.id, obj.ra, obj.dec) for obj in candidates]
+
+    # Calculate visibility for all candidates in batch (with cached twilight)
+    visibility_results = visibility_service.calculate_batch_visibility(
+        object_data, min_altitude=min_altitude
+    )
+
+    # Calculate scores based on visibility
+    scores = visibility_service.calculate_batch_scores(visibility_results)
+
+    # Build response objects for visible items
+    obj_map = {obj.id: obj for obj in candidates}
+    well_placed = []
+
+    for obj_id, visibility in visibility_results.items():
+        if not visibility.get("is_visible_tonight"):
+            continue
+
+        obj = obj_map[obj_id]
+        well_placed.append(WellPlacedObjectResponse(
+            id=obj.id,
+            primary_name=obj.primary_name,
+            object_type=obj.object_type,
+            constellation=obj.constellation,
+            magnitude=obj.magnitude,
+            ra=obj.ra,
+            dec=obj.dec,
+            image_count=0,
+            visibility=VisibilityInfo(
+                is_visible_tonight=visibility.get("is_visible_tonight", False),
+                current_altitude=visibility.get("current_altitude"),
+                max_altitude=visibility.get("max_altitude"),
+                transit_time=visibility.get("transit_time"),
+                hours_in_darkness=visibility.get("hours_in_darkness"),
+            ),
+            score=scores.get(obj_id, 0.0),
+        ))
+
+    # Sort by score descending
+    well_placed.sort(key=lambda x: x.score, reverse=True)
+
+    # Apply pagination
+    total = len(well_placed)
+    paginated = well_placed[skip : skip + limit]
+
+    return WellPlacedObjectsListResponse(
+        location_configured=True,
+        total=total,
+        skip=skip,
+        limit=limit,
+        objects=paginated,
+    )
 
 
 @router.get("/objects")

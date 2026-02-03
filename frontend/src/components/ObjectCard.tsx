@@ -1,15 +1,44 @@
 import { Link } from 'react-router-dom'
-import { AstroObject } from '../api/client'
+import { AstroObject, VisibilityInfo } from '../api/client'
 import { formatRA, formatDec } from '../utils/coordinates'
+import MiniAltitudeChart from './MiniAltitudeChart'
 
 interface ObjectCardProps {
   object: AstroObject
+  visibility?: VisibilityInfo
 }
 
-export default function ObjectCard({ object }: ObjectCardProps) {
+export default function ObjectCard({ object, visibility }: ObjectCardProps) {
   return (
-    <Link to={`/objects/${object.id}`} className="card hover:border-blue-500 transition-colors block">
-      <h3 className="text-lg font-semibold mb-2">{object.primary_name}</h3>
+    <Link
+      to={`/objects/${object.id}`}
+      className="card hover:border-blue-500 transition-colors block"
+    >
+      <div className="flex justify-between items-start gap-3 mb-2">
+        <h3 className="text-lg font-semibold">{object.primary_name}</h3>
+        {object.ra !== null && object.dec !== null && (
+          <MiniAltitudeChart objectId={object.id} width={100} height={32} />
+        )}
+      </div>
+
+      {/* Visibility info if provided */}
+      {visibility && visibility.is_visible_tonight && (
+        <div className="flex flex-wrap gap-3 mb-2 text-xs">
+          {visibility.max_altitude !== null && (
+            <span className="text-green-400">
+              Max: {visibility.max_altitude.toFixed(0)}°
+            </span>
+          )}
+          {visibility.transit_time && (
+            <span className="text-blue-400">Transit: {visibility.transit_time}</span>
+          )}
+          {visibility.hours_in_darkness !== null && (
+            <span className="text-purple-400">
+              {visibility.hours_in_darkness.toFixed(1)}h
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="space-y-1 text-sm text-gray-400">
         {object.object_type && (

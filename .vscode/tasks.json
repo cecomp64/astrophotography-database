@@ -2,6 +2,14 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Kill Frontend Server",
+			"type": "shell",
+			"command": "lsof -ti :8080 | xargs kill -9",
+			"problemMatcher": [],
+			"group": "build",
+			"detail": "Clean up any open ports from frontend"
+		},
+		{
 			"label": "Clean Frontend Dist",
 			"type": "shell",
 			"command": "rm -rf frontend/dist frontend/dist-main",

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, or_, exists, case
 from typing import Optional
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 
@@ -15,6 +15,12 @@ from app.database import get_db
 from app.models import AstroObject, ObjectAlias, Image, ImageObject
 from app.models.configuration import Configuration
 from app.schemas import ObjectResponse, ObjectCreate, ObjectUpdate, ObjectAliasCreate
+from app.schemas.objects import (
+    VisibilityInfo,
+    WellPlacedObjectResponse,
+    WellPlacedObjectsListResponse,
+    MiniAltitudeResponse,
+)
 from app.services.name_resolver import NameResolver
 from app.services.visibility_service import VisibilityService
 
@@ -163,6 +169,112 @@ def search_objects(
         result.append(obj_dict)
 
     return result
+
+
+@router.get("/dashboard/well-placed", response_model=WellPlacedObjectsListResponse)
+def get_well_placed_objects(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    min_altitude: float = Query(30.0, ge=0, le=90, description="Minimum altitude in degrees"),
+    object_type: Optional[str] = Query(None, description="Filter by object type"),
+    constellation: Optional[str] = Query(None, description="Filter by constellation"),
+    primary_only: bool = Query(True, description="Only include objects with images"),
+    db: Session = Depends(get_db),
+):
+    """
+    Get objects that are well-placed for imaging tonight.
+
+    Returns objects that are above the minimum altitude during astronomical darkness
+    for at least 1 hour. Results are sorted by imaging score (higher = better).
+    """
+    visibility_service = VisibilityService(db)
+
+    if not visibility_service.location_configured:
+        return WellPlacedObjectsListResponse(
+            location_configured=False,
+            total=0,
+            skip=skip,
+            limit=limit,
+            objects=[],
+        )
+
+    # Build base query for objects with coordinates
+    query = db.query(AstroObject).filter(
+        AstroObject.ra.isnot(None),
+        AstroObject.dec.isnot(None),
+    )
+
+    # Apply filters
+    if object_type:
+        query = query.filter(AstroObject.object_type.ilike(f"%{object_type}%"))
+    if constellation:
+        query = query.filter(AstroObject.constellation.ilike(f"%{constellation}%"))
+
+    if primary_only:
+        # Only objects with at least one primary image
+        query = query.join(ImageObject).filter(
+            ImageObject.association_type == "primary"
+        ).distinct()
+
+    # Get candidate objects (limit for performance)
+    candidates = query.limit(500).all()
+
+    # Calculate visibility for each candidate
+    well_placed = []
+    for obj in candidates:
+        visibility = visibility_service.calculate_object_visibility(
+            obj.ra, obj.dec, min_altitude=min_altitude
+        )
+
+        if not visibility.get("is_visible_tonight"):
+            continue
+
+        # Calculate imaging score
+        score = visibility_service.calculate_imaging_score(
+            ra=obj.ra,
+            dec=obj.dec,
+            project_progress=0,
+            priority=0,
+        )
+
+        # Get image count
+        image_count = db.query(func.count(ImageObject.id)).filter(
+            ImageObject.object_id == obj.id
+        ).scalar() or 0
+
+        well_placed.append(WellPlacedObjectResponse(
+            id=obj.id,
+            primary_name=obj.primary_name,
+            object_type=obj.object_type,
+            constellation=obj.constellation,
+            magnitude=obj.magnitude,
+            ra=obj.ra,
+            dec=obj.dec,
+            image_count=image_count,
+            visibility=VisibilityInfo(
+                is_visible_tonight=visibility.get("is_visible_tonight", False),
+                current_altitude=visibility.get("current_altitude"),
+                max_altitude=visibility.get("max_altitude"),
+                transit_time=visibility.get("transit_time"),
+                hours_in_darkness=visibility.get("hours_in_darkness"),
+            ),
+            score=score,
+        ))
+
+    # Sort by score descending
+    well_placed.sort(key=lambda x: x.score, reverse=True)
+
+    # Apply pagination
+    total = len(well_placed)
+    paginated = well_placed[skip : skip + limit]
+
+    return WellPlacedObjectsListResponse(
+        location_configured=True,
+        total=total,
+        skip=skip,
+        limit=limit,
+        objects=paginated,
+    )
 
 
 @router.get("/{object_id}", response_model=ObjectResponse)
@@ -346,6 +458,69 @@ async def resolve_object(
         "aliases": obj.aliases,
         "image_count": image_count or 0,
     }
+
+
+@router.get("/{object_id}/altitude/mini", response_model=MiniAltitudeResponse)
+def get_mini_altitude(
+    object_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Get simplified altitude data for sparkline/mini chart display.
+    Returns 24 altitude values (one per hour) centered on midnight tonight.
+    """
+    obj = db.query(AstroObject).filter(AstroObject.id == object_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Object not found")
+
+    if obj.ra is None or obj.dec is None:
+        raise HTTPException(status_code=400, detail="Object has no coordinates")
+
+    visibility_service = VisibilityService(db)
+
+    if not visibility_service.location_configured:
+        return MiniAltitudeResponse(data=[], darkness_start=None, darkness_end=None)
+
+    # Get twilight times to determine darkness period
+    twilight = visibility_service.calculate_twilight_times()
+
+    # Calculate altitudes at hourly intervals
+    target = SkyCoord(ra=obj.ra * u.deg, dec=obj.dec * u.deg)
+    today = date.today()
+
+    # Create midnight tonight (between today and tomorrow)
+    local_tz = visibility_service._timezone
+    next_midnight = datetime(today.year, today.month, today.day, 0, 0, 0, tzinfo=local_tz)
+    next_midnight = next_midnight.replace(day=today.day + 1) if today.day < 28 else next_midnight + timedelta(days=1)
+
+    # Generate 24 hourly times centered on midnight
+    times_hours = np.linspace(-12, 11, 24)
+    utc_midnight = next_midnight.astimezone(timezone.utc)
+    times = Time(utc_midnight) + times_hours * u.hour
+
+    # Calculate altitudes
+    altaz_frame = AltAz(obstime=times, location=visibility_service._location)
+    altaz = target.transform_to(altaz_frame)
+    altitudes = [round(float(alt), 1) for alt in altaz.alt.deg]
+
+    # Determine darkness indices (astronomical darkness)
+    darkness_start = None
+    darkness_end = None
+    if twilight and "_astro_dusk_time" in twilight and "_astro_dawn_time" in twilight:
+        astro_dusk = twilight["_astro_dusk_time"]
+        astro_dawn = twilight["_astro_dawn_time"]
+
+        for i, t in enumerate(times):
+            if darkness_start is None and t >= astro_dusk:
+                darkness_start = i
+            if t <= astro_dawn:
+                darkness_end = i
+
+    return MiniAltitudeResponse(
+        data=altitudes,
+        darkness_start=darkness_start,
+        darkness_end=darkness_end,
+    )
 
 
 @router.get("/{object_id}/altitude", response_model=AltitudeChartResponse)
