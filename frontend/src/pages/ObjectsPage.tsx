@@ -7,14 +7,16 @@ import SearchBar from '../components/SearchBar'
 export default function ObjectsPage() {
   const [typeFilter, setTypeFilter] = useState('')
   const [constellationFilter, setConstellationFilter] = useState('')
+  const [primaryOnly, setPrimaryOnly] = useState(true)
 
   const { data: objects, isLoading } = useQuery({
-    queryKey: ['objects', typeFilter, constellationFilter],
+    queryKey: ['objects', typeFilter, constellationFilter, primaryOnly],
     queryFn: () =>
       objectsApi.list({
         limit: 100,
         object_type: typeFilter || undefined,
         constellation: constellationFilter || undefined,
+        primary_only: primaryOnly,
       }),
   })
 
@@ -37,7 +39,7 @@ export default function ObjectsPage() {
           <SearchBar placeholder="Search objects..." />
         </div>
 
-        <div className="flex gap-3 sm:gap-4">
+        <div className="flex flex-wrap gap-3 sm:gap-4 items-center">
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
@@ -63,6 +65,16 @@ export default function ObjectsPage() {
               </option>
             ))}
           </select>
+
+          <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={primaryOnly}
+              onChange={(e) => setPrimaryOnly(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-gray-800"
+            />
+            Primary targets only
+          </label>
         </div>
       </div>
 

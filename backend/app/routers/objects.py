@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, exists
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, or_, exists, case
 from typing import Optional
 from datetime import datetime, date, timezone
 from zoneinfo import ZoneInfo
@@ -57,14 +57,40 @@ def list_objects(
     limit: int = Query(100, ge=1, le=500),
     object_type: Optional[str] = None,
     constellation: Optional[str] = None,
+    primary_only: bool = Query(True, description="Only show objects that are primary targets of images"),
     db: Session = Depends(get_db),
 ):
-    """List all astronomical objects with optional filters. Only includes objects with images."""
-    # Subqueries to check if object has images via either relationship
-    has_legacy_images = exists().where(Image.object_id == AstroObject.id)
-    has_image_objects = exists().where(ImageObject.object_id == AstroObject.id)
+    """List astronomical objects with optional filters. By default, only includes objects that are primary targets."""
+    # Use a subquery to get image counts per object efficiently
+    image_count_subquery = (
+        db.query(
+            ImageObject.object_id,
+            func.count(ImageObject.id).label("image_count")
+        )
+        .group_by(ImageObject.object_id)
+    )
 
-    query = db.query(AstroObject).filter(or_(has_legacy_images, has_image_objects))
+    if primary_only:
+        # Only count images where this object is the primary target
+        image_count_subquery = image_count_subquery.filter(ImageObject.association_type == "primary")
+
+    image_count_subquery = image_count_subquery.subquery()
+
+    # Main query with eager loading for aliases
+    query = (
+        db.query(AstroObject, func.coalesce(image_count_subquery.c.image_count, 0).label("image_count"))
+        .outerjoin(image_count_subquery, AstroObject.id == image_count_subquery.c.object_id)
+        .options(selectinload(AstroObject.aliases))
+    )
+
+    if primary_only:
+        # Only include objects that have at least one primary image
+        query = query.filter(image_count_subquery.c.image_count > 0)
+    else:
+        # Include objects that have any image association
+        has_legacy_images = exists().where(Image.object_id == AstroObject.id)
+        has_image_objects = exists().where(ImageObject.object_id == AstroObject.id)
+        query = query.filter(or_(has_legacy_images, has_image_objects))
 
     if object_type:
         query = query.filter(AstroObject.object_type.ilike(f"%{object_type}%"))
@@ -72,12 +98,15 @@ def list_objects(
     if constellation:
         query = query.filter(AstroObject.constellation.ilike(f"%{constellation}%"))
 
-    objects = query.offset(skip).limit(limit).all()
+    # Order by image count descending to show most photographed objects first
+    query = query.order_by(func.coalesce(image_count_subquery.c.image_count, 0).desc())
 
-    # Add image counts
-    result = []
-    for obj in objects:
-        obj_dict = {
+    results = query.offset(skip).limit(limit).all()
+
+    # Build response - aliases are already loaded via selectinload
+    response = []
+    for obj, image_count in results:
+        response.append({
             "id": obj.id,
             "primary_name": obj.primary_name,
             "ra": obj.ra,
@@ -88,11 +117,10 @@ def list_objects(
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
             "aliases": obj.aliases,
-            "image_count": len(obj.image_objects),
-        }
-        result.append(obj_dict)
+            "image_count": image_count,
+        })
 
-    return result
+    return response
 
 
 @router.get("/search", response_model=list[ObjectResponse])
@@ -105,6 +133,18 @@ def search_objects(
     resolver = NameResolver(db)
     objects = resolver.fuzzy_search(q, limit=limit)
 
+    if not objects:
+        return []
+
+    # Get image counts for all found objects in a single query
+    object_ids = [obj.id for obj in objects]
+    image_counts = dict(
+        db.query(ImageObject.object_id, func.count(ImageObject.id))
+        .filter(ImageObject.object_id.in_(object_ids))
+        .group_by(ImageObject.object_id)
+        .all()
+    )
+
     result = []
     for obj in objects:
         obj_dict = {
@@ -118,7 +158,7 @@ def search_objects(
             "created_at": obj.created_at,
             "updated_at": obj.updated_at,
             "aliases": obj.aliases,
-            "image_count": len(obj.image_objects),
+            "image_count": image_counts.get(obj.id, 0),
         }
         result.append(obj_dict)
 
@@ -128,10 +168,18 @@ def search_objects(
 @router.get("/{object_id}", response_model=ObjectResponse)
 def get_object(object_id: int, db: Session = Depends(get_db)):
     """Get a specific astronomical object by ID."""
-    obj = db.query(AstroObject).filter(AstroObject.id == object_id).first()
+    obj = (
+        db.query(AstroObject)
+        .options(selectinload(AstroObject.aliases))
+        .filter(AstroObject.id == object_id)
+        .first()
+    )
 
     if not obj:
         raise HTTPException(status_code=404, detail="Object not found")
+
+    # Get image count in a single query
+    image_count = db.query(func.count(ImageObject.id)).filter(ImageObject.object_id == object_id).scalar()
 
     return {
         "id": obj.id,
@@ -144,7 +192,7 @@ def get_object(object_id: int, db: Session = Depends(get_db)):
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "aliases": obj.aliases,
-        "image_count": len(obj.image_objects),
+        "image_count": image_count or 0,
     }
 
 
@@ -205,6 +253,8 @@ def update_object(object_id: int, obj_data: ObjectUpdate, db: Session = Depends(
     db.commit()
     db.refresh(obj)
 
+    image_count = db.query(func.count(ImageObject.id)).filter(ImageObject.object_id == object_id).scalar()
+
     return {
         "id": obj.id,
         "primary_name": obj.primary_name,
@@ -216,7 +266,7 @@ def update_object(object_id: int, obj_data: ObjectUpdate, db: Session = Depends(
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "aliases": obj.aliases,
-        "image_count": len(obj.image_objects),
+        "image_count": image_count or 0,
     }
 
 
@@ -249,6 +299,8 @@ def add_alias(object_id: int, alias_data: ObjectAliasCreate, db: Session = Depen
     db.commit()
     db.refresh(obj)
 
+    image_count = db.query(func.count(ImageObject.id)).filter(ImageObject.object_id == object_id).scalar()
+
     return {
         "id": obj.id,
         "primary_name": obj.primary_name,
@@ -260,7 +312,7 @@ def add_alias(object_id: int, alias_data: ObjectAliasCreate, db: Session = Depen
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "aliases": obj.aliases,
-        "image_count": len(obj.image_objects),
+        "image_count": image_count or 0,
     }
 
 
@@ -279,6 +331,8 @@ async def resolve_object(
     if not obj:
         raise HTTPException(status_code=404, detail=f"Could not resolve object: {q}")
 
+    image_count = db.query(func.count(ImageObject.id)).filter(ImageObject.object_id == obj.id).scalar()
+
     return {
         "id": obj.id,
         "primary_name": obj.primary_name,
@@ -290,7 +344,7 @@ async def resolve_object(
         "created_at": obj.created_at,
         "updated_at": obj.updated_at,
         "aliases": obj.aliases,
-        "image_count": len(obj.image_objects),
+        "image_count": image_count or 0,
     }
 
 

@@ -383,7 +383,7 @@ export interface WellPlacedProjectsResponse {
 
 // API functions
 export const objectsApi = {
-  list: async (params?: { skip?: number; limit?: number; object_type?: string; constellation?: string }) => {
+  list: async (params?: { skip?: number; limit?: number; object_type?: string; constellation?: string; primary_only?: boolean }) => {
     const response = await apiClient.get<AstroObject[]>('/objects', { params })
     return response.data
   },

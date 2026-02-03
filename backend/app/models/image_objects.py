@@ -9,9 +9,9 @@ class ImageObject(Base):
     __tablename__ = "image_objects"
 
     id = Column(Integer, primary_key=True, index=True)
-    image_id = Column(Integer, ForeignKey("images.id", ondelete="CASCADE"), nullable=False)
-    object_id = Column(Integer, ForeignKey("objects.id", ondelete="CASCADE"), nullable=False)
-    association_type = Column(String(50), nullable=False, default="in_fov")
+    image_id = Column(Integer, ForeignKey("images.id", ondelete="CASCADE"), nullable=False, index=True)
+    object_id = Column(Integer, ForeignKey("objects.id", ondelete="CASCADE"), nullable=False, index=True)
+    association_type = Column(String(50), nullable=False, default="in_fov", index=True)
     angular_distance = Column(Float, nullable=True)  # Distance from image center in arcminutes
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
