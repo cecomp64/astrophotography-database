@@ -401,6 +401,7 @@ export interface WellPlacedObject {
   image_count: number
   visibility: VisibilityInfo
   score: number
+  aliases: ObjectAlias[]
 }
 
 export interface WellPlacedObjectsResponse {
@@ -415,6 +416,16 @@ export interface MiniAltitudeData {
   data: number[]  // 24 hourly altitude values
   darkness_start: number | null
   darkness_end: number | null
+  // Visibility stats (calculated during darkness only)
+  max_altitude: number | null
+  transit_time: string | null
+  hours_in_darkness: number | null
+}
+
+export interface FilterStats {
+  by_filter: Record<string, number>
+  total_images: number
+  total_exposure_seconds: number
 }
 
 // API functions
@@ -456,6 +467,11 @@ export const objectsApi = {
 
   getMiniAltitude: async (id: number) => {
     const response = await apiClient.get<MiniAltitudeData>(`/objects/${id}/altitude/mini`)
+    return response.data
+  },
+
+  getFilterStats: async (id: number) => {
+    const response = await apiClient.get<FilterStats>(`/objects/${id}/filter-stats`)
     return response.data
   },
 
@@ -590,6 +606,8 @@ export const catalogueApi = {
     min_size?: number
     max_size?: number
     search?: string
+    sort_by?: 'primary_name' | 'magnitude' | 'size_major' | 'constellation' | 'object_type' | 'ra' | 'dec'
+    sort_order?: 'asc' | 'desc'
   }) => {
     const response = await apiClient.get<CatalogueObjectsResponse>('/catalogue/objects', { params })
     return response.data
@@ -605,6 +623,8 @@ export const catalogueApi = {
     min_magnitude?: number
     max_magnitude?: number
     min_size?: number
+    max_size?: number
+    search?: string
   }) => {
     const response = await apiClient.get<WellPlacedObjectsResponse>('/catalogue/well-placed', { params })
     return response.data

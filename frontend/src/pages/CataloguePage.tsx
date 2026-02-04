@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
@@ -9,6 +9,35 @@ import {
 } from '../api/client'
 import { formatRA, formatDec } from '../utils/coordinates'
 import MiniAltitudeChart from '../components/MiniAltitudeChart'
+
+type SortField = 'primary_name' | 'magnitude' | 'size_major' | 'constellation' | 'object_type' | 'ra' | 'dec'
+type WellPlacedSortField = 'primary_name' | 'magnitude' | 'constellation' | 'object_type' | 'max_altitude' | 'transit_time' | 'hours_in_darkness'
+type SortOrder = 'asc' | 'desc'
+
+interface SortableHeaderProps {
+  label: string
+  field: string
+  currentSort: string
+  currentOrder: SortOrder
+  onSort: (field: string) => void
+}
+
+function SortableHeader({ label, field, currentSort, currentOrder, onSort }: SortableHeaderProps) {
+  const isActive = currentSort === field
+  return (
+    <th
+      className="cursor-pointer select-none hover:bg-space-600 transition-colors"
+      onClick={() => onSort(field)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <span className={`text-xs ${isActive ? 'text-blue-400' : 'text-gray-500'}`}>
+          {isActive ? (currentOrder === 'asc' ? '▲' : '▼') : '⬍'}
+        </span>
+      </div>
+    </th>
+  )
+}
 
 export default function CataloguePage() {
   const [catalogFilter, setCatalogFilter] = useState('')
@@ -24,6 +53,12 @@ export default function CataloguePage() {
   const [page, setPage] = useState(0)
   const pageSize = 50
 
+  // Sorting state
+  const [sortBy, setSortBy] = useState<SortField>('primary_name')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
+  const [wellPlacedSortBy, setWellPlacedSortBy] = useState<WellPlacedSortField>('max_altitude')
+  const [wellPlacedSortOrder, setWellPlacedSortOrder] = useState<SortOrder>('desc')
+
   // Reset page when filters change
   useEffect(() => {
     setPage(0)
@@ -38,6 +73,8 @@ export default function CataloguePage() {
     maxSize,
     visibleTonight,
     minAltitude,
+    sortBy,
+    sortOrder,
   ])
 
   // Query for well-placed objects (when visibleTonight is true)
@@ -47,8 +84,11 @@ export default function CataloguePage() {
       catalogFilter,
       typeFilter,
       constellationFilter,
+      searchQuery,
       minMagnitude,
       maxMagnitude,
+      minSize,
+      maxSize,
       minAltitude,
       page,
     ],
@@ -60,8 +100,11 @@ export default function CataloguePage() {
         catalog: catalogFilter || undefined,
         object_type: typeFilter || undefined,
         constellation: constellationFilter || undefined,
+        search: searchQuery || undefined,
         min_magnitude: minMagnitude ? parseFloat(minMagnitude) : undefined,
         max_magnitude: maxMagnitude ? parseFloat(maxMagnitude) : undefined,
+        min_size: minSize ? parseFloat(minSize) : undefined,
+        max_size: maxSize ? parseFloat(maxSize) : undefined,
       }),
     enabled: visibleTonight,
     placeholderData: keepPreviousData,
@@ -81,6 +124,8 @@ export default function CataloguePage() {
       minSize,
       maxSize,
       page,
+      sortBy,
+      sortOrder,
     ],
     queryFn: () =>
       catalogueApi.list({
@@ -94,6 +139,8 @@ export default function CataloguePage() {
         max_magnitude: maxMagnitude ? parseFloat(maxMagnitude) : undefined,
         min_size: minSize ? parseFloat(minSize) : undefined,
         max_size: maxSize ? parseFloat(maxSize) : undefined,
+        sort_by: sortBy,
+        sort_order: sortOrder,
       }),
     enabled: !visibleTonight,
     placeholderData: keepPreviousData,
@@ -123,6 +170,26 @@ export default function CataloguePage() {
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setPage(0)
+  }
+
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(field as SortField)
+      setSortOrder('asc')
+    }
+  }
+
+  const handleWellPlacedSort = (field: string) => {
+    if (wellPlacedSortBy === field) {
+      setWellPlacedSortOrder(wellPlacedSortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setWellPlacedSortBy(field as WellPlacedSortField)
+      // Default to desc for numeric fields
+      const defaultDesc = ['max_altitude', 'hours_in_darkness', 'magnitude'].includes(field)
+      setWellPlacedSortOrder(defaultDesc ? 'desc' : 'asc')
+    }
   }
 
   const getAliasesByCatalog = (obj: CatalogueObject, catalog: string): string[] => {
@@ -155,6 +222,105 @@ export default function CataloguePage() {
     ? (wellPlacedData as WellPlacedObjectsResponse)?.objects
     : undefined
 
+  // Sort well-placed objects client-side
+  const sortedWellPlacedObjects = useMemo(() => {
+    if (!wellPlacedObjects) return undefined
+    const sorted = [...wellPlacedObjects]
+    sorted.sort((a, b) => {
+      let aVal: string | number | null = null
+      let bVal: string | number | null = null
+
+      switch (wellPlacedSortBy) {
+        case 'primary_name':
+          aVal = a.primary_name.toLowerCase()
+          bVal = b.primary_name.toLowerCase()
+          break
+        case 'magnitude':
+          aVal = a.magnitude
+          bVal = b.magnitude
+          break
+        case 'constellation':
+          aVal = a.constellation?.toLowerCase() || ''
+          bVal = b.constellation?.toLowerCase() || ''
+          break
+        case 'object_type':
+          aVal = a.object_type?.toLowerCase() || ''
+          bVal = b.object_type?.toLowerCase() || ''
+          break
+        case 'max_altitude':
+          aVal = a.visibility.max_altitude
+          bVal = b.visibility.max_altitude
+          break
+        case 'transit_time':
+          aVal = a.visibility.transit_time || ''
+          bVal = b.visibility.transit_time || ''
+          break
+        case 'hours_in_darkness':
+          aVal = a.visibility.hours_in_darkness
+          bVal = b.visibility.hours_in_darkness
+          break
+      }
+
+      // Handle nulls
+      if (aVal === null && bVal === null) return 0
+      if (aVal === null) return wellPlacedSortOrder === 'asc' ? 1 : -1
+      if (bVal === null) return wellPlacedSortOrder === 'asc' ? -1 : 1
+
+      // Compare
+      if (aVal < bVal) return wellPlacedSortOrder === 'asc' ? -1 : 1
+      if (aVal > bVal) return wellPlacedSortOrder === 'asc' ? 1 : -1
+      return 0
+    })
+    return sorted
+  }, [wellPlacedObjects, wellPlacedSortBy, wellPlacedSortOrder])
+
+  const renderPagination = () => {
+    if (totalPages <= 1) return null
+    const currentTotal = visibleTonight ? (wellPlacedData as WellPlacedObjectsResponse)?.total : catalogueData?.total
+    return (
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="text-sm text-gray-400 text-center sm:text-left">
+          Showing {page * pageSize + 1} -{' '}
+          {Math.min((page + 1) * pageSize, currentTotal!)} of{' '}
+          {currentTotal!.toLocaleString()}
+        </div>
+        <div className="flex flex-wrap justify-center gap-2">
+          <button
+            onClick={() => setPage(0)}
+            disabled={page === 0}
+            className="btn btn-secondary hidden sm:inline-flex"
+          >
+            First
+          </button>
+          <button
+            onClick={() => setPage(page - 1)}
+            disabled={page === 0}
+            className="btn btn-secondary"
+          >
+            Previous
+          </button>
+          <span className="px-4 py-2 text-gray-300 text-sm sm:text-base">
+            Page {page + 1} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage(page + 1)}
+            disabled={page >= totalPages - 1}
+            className="btn btn-secondary"
+          >
+            Next
+          </button>
+          <button
+            onClick={() => setPage(totalPages - 1)}
+            disabled={page >= totalPages - 1}
+            className="btn btn-secondary hidden sm:inline-flex"
+          >
+            Last
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
@@ -175,7 +341,6 @@ export default function CataloguePage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name or designation (M42, NGC 1976, Orion)..."
               className="input w-full"
-              disabled={visibleTonight}
             />
           </div>
 
@@ -227,11 +392,9 @@ export default function CataloguePage() {
             ))}
           </select>
 
-          {!visibleTonight && (
-            <button type="submit" className="btn btn-primary">
-              Search
-            </button>
-          )}
+          <button type="submit" className="btn btn-primary">
+            Search
+          </button>
         </form>
 
         <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-space-600">
@@ -262,34 +425,32 @@ export default function CataloguePage() {
             />
           </div>
 
-          {!visibleTonight && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-400">Size (arcmin):</span>
-              <input
-                type="number"
-                step="0.1"
-                value={minSize}
-                onChange={(e) => {
-                  setMinSize(e.target.value)
-                  setPage(0)
-                }}
-                placeholder="Min"
-                className="input w-20"
-              />
-              <span className="text-gray-500">-</span>
-              <input
-                type="number"
-                step="0.1"
-                value={maxSize}
-                onChange={(e) => {
-                  setMaxSize(e.target.value)
-                  setPage(0)
-                }}
-                placeholder="Max"
-                className="input w-20"
-              />
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-400">Size (arcmin):</span>
+            <input
+              type="number"
+              step="0.1"
+              value={minSize}
+              onChange={(e) => {
+                setMinSize(e.target.value)
+                setPage(0)
+              }}
+              placeholder="Min"
+              className="input w-20"
+            />
+            <span className="text-gray-500">-</span>
+            <input
+              type="number"
+              step="0.1"
+              value={maxSize}
+              onChange={(e) => {
+                setMaxSize(e.target.value)
+                setPage(0)
+              }}
+              placeholder="Max"
+              className="input w-20"
+            />
+          </div>
 
           <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
             <input
@@ -344,41 +505,79 @@ export default function CataloguePage() {
 
       {isLoading ? (
         <div className="text-gray-400">Loading catalogue...</div>
-      ) : visibleTonight && wellPlacedObjects && wellPlacedObjects.length > 0 ? (
+      ) : visibleTonight && sortedWellPlacedObjects && sortedWellPlacedObjects.length > 0 ? (
         <>
           <div className="overflow-x-auto">
             <table className="table w-full">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Altitude</th>
-                  <th>Type</th>
-                  <th>Constellation</th>
-                  <th>Transit</th>
-                  <th>Hours</th>
-                  <th>Magnitude</th>
+                  <SortableHeader
+                    label="Name"
+                    field="primary_name"
+                    currentSort={wellPlacedSortBy}
+                    currentOrder={wellPlacedSortOrder}
+                    onSort={handleWellPlacedSort}
+                  />
+                  <th>Visibility</th>
+                  <SortableHeader
+                    label="Type"
+                    field="object_type"
+                    currentSort={wellPlacedSortBy}
+                    currentOrder={wellPlacedSortOrder}
+                    onSort={handleWellPlacedSort}
+                  />
+                  <SortableHeader
+                    label="Constellation"
+                    field="constellation"
+                    currentSort={wellPlacedSortBy}
+                    currentOrder={wellPlacedSortOrder}
+                    onSort={handleWellPlacedSort}
+                  />
+                  <SortableHeader
+                    label="Max Alt"
+                    field="max_altitude"
+                    currentSort={wellPlacedSortBy}
+                    currentOrder={wellPlacedSortOrder}
+                    onSort={handleWellPlacedSort}
+                  />
+                  <SortableHeader
+                    label="Transit"
+                    field="transit_time"
+                    currentSort={wellPlacedSortBy}
+                    currentOrder={wellPlacedSortOrder}
+                    onSort={handleWellPlacedSort}
+                  />
+                  <SortableHeader
+                    label="Hours"
+                    field="hours_in_darkness"
+                    currentSort={wellPlacedSortBy}
+                    currentOrder={wellPlacedSortOrder}
+                    onSort={handleWellPlacedSort}
+                  />
+                  <SortableHeader
+                    label="Mag"
+                    field="magnitude"
+                    currentSort={wellPlacedSortBy}
+                    currentOrder={wellPlacedSortOrder}
+                    onSort={handleWellPlacedSort}
+                  />
                 </tr>
               </thead>
               <tbody>
-                {wellPlacedObjects.map((obj: WellPlacedObject) => (
-                  <tr key={obj.id} className="hover:bg-space-700 cursor-pointer">
+                {sortedWellPlacedObjects.map((obj: WellPlacedObject) => (
+                  <tr key={obj.id} className="hover:bg-space-700">
                     <td className="font-medium">
-                      <div className="flex items-center gap-3">
-                        <Link
-                          to={`/objects/${obj.id}`}
-                          className="text-blue-400 hover:text-blue-300"
-                        >
-                          {obj.primary_name}
-                        </Link>
-                        {obj.ra !== null && obj.dec !== null && (
-                          <MiniAltitudeChart objectId={obj.id} width={80} height={24} />
-                        )}
-                      </div>
+                      <Link
+                        to={`/objects/${obj.id}`}
+                        className="text-blue-400 hover:text-blue-300"
+                      >
+                        {obj.primary_name}
+                      </Link>
                     </td>
-                    <td className="text-green-400">
-                      {obj.visibility.max_altitude !== null
-                        ? `${obj.visibility.max_altitude.toFixed(0)}°`
-                        : '-'}
+                    <td>
+                      {obj.ra !== null && obj.dec !== null && (
+                        <MiniAltitudeChart objectId={obj.id} width={80} height={24} />
+                      )}
                     </td>
                     <td>
                       {obj.object_type && (
@@ -386,6 +585,11 @@ export default function CataloguePage() {
                       )}
                     </td>
                     <td>{obj.constellation || '-'}</td>
+                    <td className="text-green-400">
+                      {obj.visibility.max_altitude !== null
+                        ? `${obj.visibility.max_altitude.toFixed(0)}°`
+                        : '-'}
+                    </td>
                     <td className="text-blue-400">
                       {obj.visibility.transit_time || '-'}
                     </td>
@@ -402,49 +606,7 @@ export default function CataloguePage() {
               </tbody>
             </table>
           </div>
-
-          {totalPages > 1 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-sm text-gray-400 text-center sm:text-left">
-                Showing {page * pageSize + 1} -{' '}
-                {Math.min((page + 1) * pageSize, total!)} of{' '}
-                {total!.toLocaleString()}
-              </div>
-              <div className="flex flex-wrap justify-center gap-2">
-                <button
-                  onClick={() => setPage(0)}
-                  disabled={page === 0}
-                  className="btn btn-secondary hidden sm:inline-flex"
-                >
-                  First
-                </button>
-                <button
-                  onClick={() => setPage(page - 1)}
-                  disabled={page === 0}
-                  className="btn btn-secondary"
-                >
-                  Previous
-                </button>
-                <span className="px-4 py-2 text-gray-300 text-sm sm:text-base">
-                  Page {page + 1} of {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage(page + 1)}
-                  disabled={page >= totalPages - 1}
-                  className="btn btn-secondary"
-                >
-                  Next
-                </button>
-                <button
-                  onClick={() => setPage(totalPages - 1)}
-                  disabled={page >= totalPages - 1}
-                  className="btn btn-secondary hidden sm:inline-flex"
-                >
-                  Last
-                </button>
-              </div>
-            </div>
-          )}
+          {renderPagination()}
         </>
       ) : catalogueData && catalogueData.objects.length > 0 ? (
         <>
@@ -452,19 +614,62 @@ export default function CataloguePage() {
             <table className="table w-full">
               <thead>
                 <tr>
-                  <th>Name</th>
+                  <SortableHeader
+                    label="Name"
+                    field="primary_name"
+                    currentSort={sortBy}
+                    currentOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <th>Visibility</th>
                   <th>Designations</th>
-                  <th>Type</th>
-                  <th>Constellation</th>
-                  <th>RA</th>
-                  <th>Dec</th>
-                  <th>Magnitude</th>
-                  <th>Size</th>
+                  <SortableHeader
+                    label="Type"
+                    field="object_type"
+                    currentSort={sortBy}
+                    currentOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <SortableHeader
+                    label="Constellation"
+                    field="constellation"
+                    currentSort={sortBy}
+                    currentOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <SortableHeader
+                    label="RA"
+                    field="ra"
+                    currentSort={sortBy}
+                    currentOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <SortableHeader
+                    label="Dec"
+                    field="dec"
+                    currentSort={sortBy}
+                    currentOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <SortableHeader
+                    label="Mag"
+                    field="magnitude"
+                    currentSort={sortBy}
+                    currentOrder={sortOrder}
+                    onSort={handleSort}
+                  />
+                  <SortableHeader
+                    label="Size"
+                    field="size_major"
+                    currentSort={sortBy}
+                    currentOrder={sortOrder}
+                    onSort={handleSort}
+                  />
                 </tr>
               </thead>
               <tbody>
                 {catalogueData.objects.map((obj: CatalogueObject) => (
-                  <tr key={obj.id} className="hover:bg-space-700 cursor-pointer">
+                  <tr key={obj.id} className="hover:bg-space-700">
                     <td className="font-medium">
                       <Link
                         to={`/objects/${obj.id}`}
@@ -472,6 +677,11 @@ export default function CataloguePage() {
                       >
                         {obj.primary_name}
                       </Link>
+                    </td>
+                    <td>
+                      {obj.ra !== null && obj.dec !== null && (
+                        <MiniAltitudeChart objectId={obj.id} width={80} height={24} />
+                      )}
                     </td>
                     <td className="text-sm text-gray-400">
                       {getDisplayDesignations(obj)}
@@ -501,49 +711,7 @@ export default function CataloguePage() {
               </tbody>
             </table>
           </div>
-
-          {totalPages > 1 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-sm text-gray-400 text-center sm:text-left">
-                Showing {page * pageSize + 1} -{' '}
-                {Math.min((page + 1) * pageSize, catalogueData.total)} of{' '}
-                {catalogueData.total.toLocaleString()}
-              </div>
-              <div className="flex flex-wrap justify-center gap-2">
-                <button
-                  onClick={() => setPage(0)}
-                  disabled={page === 0}
-                  className="btn btn-secondary hidden sm:inline-flex"
-                >
-                  First
-                </button>
-                <button
-                  onClick={() => setPage(page - 1)}
-                  disabled={page === 0}
-                  className="btn btn-secondary"
-                >
-                  Previous
-                </button>
-                <span className="px-4 py-2 text-gray-300 text-sm sm:text-base">
-                  Page {page + 1} of {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage(page + 1)}
-                  disabled={page >= totalPages - 1}
-                  className="btn btn-secondary"
-                >
-                  Next
-                </button>
-                <button
-                  onClick={() => setPage(totalPages - 1)}
-                  disabled={page >= totalPages - 1}
-                  className="btn btn-secondary hidden sm:inline-flex"
-                >
-                  Last
-                </button>
-              </div>
-            </div>
-          )}
+          {renderPagination()}
         </>
       ) : (
         <div className="card text-center py-12">

@@ -80,6 +80,7 @@ class WellPlacedObjectResponse(BaseModel):
     image_count: int
     visibility: VisibilityInfo
     score: float
+    aliases: list[ObjectAliasResponse] = []
 
 
 class WellPlacedObjectsListResponse(BaseModel):
@@ -93,8 +94,12 @@ class WellPlacedObjectsListResponse(BaseModel):
 
 
 class MiniAltitudeResponse(BaseModel):
-    """Simplified altitude data for sparkline charts."""
+    """Simplified altitude data for sparkline charts with visibility stats."""
 
     data: list[float]  # 24 hourly altitude values
     darkness_start: Optional[int] = None  # hour index where darkness begins
     darkness_end: Optional[int] = None  # hour index where darkness ends
+    # Visibility stats (calculated during darkness only)
+    max_altitude: Optional[float] = None  # max altitude during darkness
+    transit_time: Optional[str] = None  # HH:MM format
+    hours_in_darkness: Optional[float] = None  # hours above min altitude during darkness

@@ -86,7 +86,10 @@ export default function ObjectsPage() {
   })
 
   const isLoading = visibleTonight ? wellPlacedLoading : regularLoading
-  const isFetching = visibleTonight ? wellPlacedFetching : regularFetching
+  // Only show "Updating..." when actively refetching data that already exists
+  const isFetching = visibleTonight
+    ? wellPlacedFetching && !wellPlacedLoading && wellPlacedData !== undefined
+    : regularFetching && !regularLoading && regularObjects !== undefined
 
   // Get objects and total count based on mode
   const wellPlacedObjects = visibleTonight
@@ -124,7 +127,7 @@ export default function ObjectsPage() {
     size_minor: null,
     created_at: '',
     updated_at: '',
-    aliases: [],
+    aliases: obj.aliases || [],
     image_count: obj.image_count,
   })
 

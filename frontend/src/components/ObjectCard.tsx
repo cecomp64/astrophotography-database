@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
-import { AstroObject, VisibilityInfo } from '../api/client'
+import { useQuery } from '@tanstack/react-query'
+import { AstroObject, VisibilityInfo, objectsApi } from '../api/client'
 import { formatRA, formatDec } from '../utils/coordinates'
 import MiniAltitudeChart from './MiniAltitudeChart'
 
@@ -8,7 +9,43 @@ interface ObjectCardProps {
   visibility?: VisibilityInfo
 }
 
+// Filter name abbreviations for compact display
+const FILTER_ABBREV: Record<string, string> = {
+  'Luminance': 'L',
+  'Red': 'R',
+  'Green': 'G',
+  'Blue': 'B',
+  'Ha': 'Hα',
+  'H-alpha': 'Hα',
+  'OIII': 'OIII',
+  'SII': 'SII',
+}
+
+function abbreviateFilter(filter: string): string {
+  return FILTER_ABBREV[filter] || filter.slice(0, 3)
+}
+
 export default function ObjectCard({ object, visibility }: ObjectCardProps) {
+  // Fetch mini altitude data (React Query deduplicates with MiniAltitudeChart's query)
+  const { data: miniAltitude } = useQuery({
+    queryKey: ['miniAltitude', object.id],
+    queryFn: () => objectsApi.getMiniAltitude(object.id),
+    enabled: object.ra !== null && object.dec !== null && !visibility,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Fetch filter stats for this object
+  const { data: filterStats } = useQuery({
+    queryKey: ['filterStats', object.id],
+    queryFn: () => objectsApi.getFilterStats(object.id),
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Use provided visibility info, or derive from mini altitude data
+  const maxAlt = visibility?.max_altitude ?? miniAltitude?.max_altitude
+  const transitTime = visibility?.transit_time ?? miniAltitude?.transit_time
+  const hoursInDarkness = visibility?.hours_in_darkness ?? miniAltitude?.hours_in_darkness
+
   return (
     <Link
       to={`/objects/${object.id}`}
@@ -21,20 +58,18 @@ export default function ObjectCard({ object, visibility }: ObjectCardProps) {
         )}
       </div>
 
-      {/* Visibility info if provided */}
-      {visibility && visibility.is_visible_tonight && (
+      {/* Visibility info - always shown when data is available */}
+      {(maxAlt !== null && maxAlt !== undefined) && (
         <div className="flex flex-wrap gap-3 mb-2 text-xs">
-          {visibility.max_altitude !== null && (
-            <span className="text-green-400">
-              Max: {visibility.max_altitude.toFixed(0)}°
-            </span>
+          <span className="text-green-400">
+            Max: {maxAlt.toFixed(0)}°
+          </span>
+          {transitTime && (
+            <span className="text-blue-400">Transit: {transitTime}</span>
           )}
-          {visibility.transit_time && (
-            <span className="text-blue-400">Transit: {visibility.transit_time}</span>
-          )}
-          {visibility.hours_in_darkness !== null && (
+          {hoursInDarkness !== null && hoursInDarkness !== undefined && (
             <span className="text-purple-400">
-              {visibility.hours_in_darkness.toFixed(1)}h
+              {hoursInDarkness.toFixed(1)}h
             </span>
           )}
         </div>
@@ -90,11 +125,24 @@ export default function ObjectCard({ object, visibility }: ObjectCardProps) {
         </div>
       )}
 
-      {object.image_count !== undefined && (
+      {/* Filter stats or image count */}
+      {filterStats && filterStats.total_images > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-1">
+          {Object.entries(filterStats.by_filter).map(([filter, count]) => (
+            <span
+              key={filter}
+              className="px-1.5 py-0.5 bg-gray-700 rounded text-xs text-gray-300"
+              title={`${filter}: ${count} images`}
+            >
+              {abbreviateFilter(filter)}: {count}
+            </span>
+          ))}
+        </div>
+      ) : object.image_count !== undefined && object.image_count > 0 ? (
         <div className="mt-3 text-sm text-gray-400">
           {object.image_count} image{object.image_count !== 1 ? 's' : ''}
         </div>
-      )}
+      ) : null}
     </Link>
   )
 }

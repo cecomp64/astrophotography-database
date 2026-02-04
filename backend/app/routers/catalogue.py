@@ -26,6 +26,8 @@ def get_well_placed_catalogue_objects(
     min_magnitude: Optional[float] = Query(None, description="Minimum magnitude"),
     max_magnitude: Optional[float] = Query(None, description="Maximum magnitude"),
     min_size: Optional[float] = Query(None, description="Minimum size in arcminutes"),
+    max_size: Optional[float] = Query(None, description="Maximum size in arcminutes"),
+    search: Optional[str] = Query(None, description="Search by name or catalog number"),
     db: Session = Depends(get_db),
 ):
     """
@@ -80,6 +82,21 @@ def get_well_placed_catalogue_objects(
 
     if min_size is not None:
         query = query.filter(AstroObject.size_major >= min_size)
+
+    if max_size is not None:
+        query = query.filter(AstroObject.size_major <= max_size)
+
+    if search:
+        search_term = f"%{search}%"
+        search_no_spaces = f"%{search.replace(' ', '')}%"
+        query = query.outerjoin(ObjectAlias).filter(
+            or_(
+                AstroObject.primary_name.ilike(search_term),
+                ObjectAlias.alias_name.ilike(search_term),
+                func.replace(AstroObject.primary_name, ' ', '').ilike(search_no_spaces),
+                func.replace(ObjectAlias.alias_name, ' ', '').ilike(search_no_spaces)
+            )
+        )
 
     # Get candidate objects - increased limit since we pre-filter by declination
     candidates = query.distinct().limit(2000).all()
@@ -168,6 +185,8 @@ def list_catalogue_objects(
     min_size: Optional[float] = Query(default=None, description="Minimum size in arcminutes"),
     max_size: Optional[float] = Query(default=None, description="Maximum size in arcminutes"),
     search: Optional[str] = Query(default=None, description="Search by name or catalog number"),
+    sort_by: Optional[str] = Query(default="primary_name", description="Sort by field: primary_name, magnitude, size_major, constellation, object_type, ra, dec"),
+    sort_order: Optional[str] = Query(default="asc", description="Sort order: asc or desc"),
     db: Session = Depends(get_db)
 ):
     """
@@ -217,7 +236,22 @@ def list_catalogue_objects(
     query = query.distinct()
 
     total = query.count()
-    objects = query.order_by(AstroObject.primary_name).offset(skip).limit(limit).all()
+
+    # Apply sorting
+    sort_column_map = {
+        "primary_name": AstroObject.primary_name,
+        "magnitude": AstroObject.magnitude,
+        "size_major": AstroObject.size_major,
+        "constellation": AstroObject.constellation,
+        "object_type": AstroObject.object_type,
+        "ra": AstroObject.ra,
+        "dec": AstroObject.dec,
+    }
+    sort_column = sort_column_map.get(sort_by, AstroObject.primary_name)
+    if sort_order == "desc":
+        sort_column = sort_column.desc()
+
+    objects = query.order_by(sort_column).offset(skip).limit(limit).all()
 
     return {
         "total": total,

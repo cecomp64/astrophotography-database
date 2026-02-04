@@ -198,8 +198,10 @@ def get_well_placed_objects(
             objects=[],
         )
 
-    # Build base query for objects with coordinates
-    query = db.query(AstroObject).filter(
+    # Build base query for objects with coordinates and eager-load aliases
+    query = db.query(AstroObject).options(
+        selectinload(AstroObject.aliases)
+    ).filter(
         AstroObject.ra.isnot(None),
         AstroObject.dec.isnot(None),
     )
@@ -215,6 +217,11 @@ def get_well_placed_objects(
         query = query.join(ImageObject).filter(
             ImageObject.association_type == "primary"
         ).distinct()
+    else:
+        # Include objects that have any image association
+        has_legacy_images = exists().where(Image.object_id == AstroObject.id)
+        has_image_objects = exists().where(ImageObject.object_id == AstroObject.id)
+        query = query.filter(or_(has_legacy_images, has_image_objects))
 
     # Get candidate objects (limit for performance)
     candidates = query.limit(500).all()
@@ -259,6 +266,7 @@ def get_well_placed_objects(
                 hours_in_darkness=visibility.get("hours_in_darkness"),
             ),
             score=score,
+            aliases=obj.aliases,
         ))
 
     # Sort by score descending
@@ -463,11 +471,13 @@ async def resolve_object(
 @router.get("/{object_id}/altitude/mini", response_model=MiniAltitudeResponse)
 def get_mini_altitude(
     object_id: int,
+    min_altitude: float = Query(30.0, ge=0, le=90, description="Minimum altitude for hours calculation"),
     db: Session = Depends(get_db),
 ):
     """
     Get simplified altitude data for sparkline/mini chart display.
-    Returns 24 altitude values (one per hour) centered on midnight tonight.
+    Returns 24 altitude values (one per hour) centered on midnight tonight,
+    plus visibility stats (max altitude during darkness, transit time, hours in darkness).
     """
     obj = db.query(AstroObject).filter(AstroObject.id == object_id).first()
     if not obj:
@@ -501,11 +511,14 @@ def get_mini_altitude(
     # Calculate altitudes
     altaz_frame = AltAz(obstime=times, location=visibility_service._location)
     altaz = target.transform_to(altaz_frame)
-    altitudes = [round(float(alt), 1) for alt in altaz.alt.deg]
+    altitudes_array = altaz.alt.deg
+    altitudes = [round(float(alt), 1) for alt in altitudes_array]
 
     # Determine darkness indices (astronomical darkness)
     darkness_start = None
     darkness_end = None
+    astro_dusk = None
+    astro_dawn = None
     if twilight and "_astro_dusk_time" in twilight and "_astro_dawn_time" in twilight:
         astro_dusk = twilight["_astro_dusk_time"]
         astro_dawn = twilight["_astro_dawn_time"]
@@ -516,10 +529,37 @@ def get_mini_altitude(
             if t <= astro_dawn:
                 darkness_end = i
 
+    # Calculate visibility stats during darkness
+    max_altitude = None
+    transit_time = None
+    hours_in_darkness = None
+
+    if darkness_start is not None and darkness_end is not None and darkness_start < darkness_end:
+        # Get altitudes during darkness period
+        dark_altitudes = altitudes_array[darkness_start:darkness_end + 1]
+        dark_times = times[darkness_start:darkness_end + 1]
+
+        if len(dark_altitudes) > 0:
+            # Max altitude during darkness
+            max_alt_idx = np.argmax(dark_altitudes)
+            max_altitude = round(float(dark_altitudes[max_alt_idx]), 1)
+
+            # Transit time (time of max altitude during darkness)
+            transit_dt = dark_times[max_alt_idx].to_datetime(timezone=timezone.utc)
+            transit_local = transit_dt.astimezone(local_tz)
+            transit_time = transit_local.strftime("%H:%M")
+
+            # Hours above min altitude during darkness
+            above_min = dark_altitudes >= min_altitude
+            hours_in_darkness = round(float(np.sum(above_min)), 1)  # Each point is 1 hour
+
     return MiniAltitudeResponse(
         data=altitudes,
         darkness_start=darkness_start,
         darkness_end=darkness_end,
+        max_altitude=max_altitude,
+        transit_time=transit_time,
+        hours_in_darkness=hours_in_darkness,
     )
 
 
@@ -676,4 +716,51 @@ def get_altitude_chart(
         rise_time=rise_time,
         set_time=set_time,
         twilight=twilight,
+    )
+
+
+class FilterStatsResponse(BaseModel):
+    """Filter statistics for an object."""
+    by_filter: dict[str, int]  # filter_name -> image count
+    total_images: int
+    total_exposure_seconds: float
+
+
+@router.get("/{object_id}/filter-stats", response_model=FilterStatsResponse)
+def get_object_filter_stats(
+    object_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Get filter statistics for a specific object.
+    Returns count of images and total exposure time per filter.
+    """
+    obj = db.query(AstroObject).filter(AstroObject.id == object_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Object not found")
+
+    # Get images for this object via ImageObject association
+    filter_stats = (
+        db.query(Image.filter_name, func.count(Image.id), func.sum(Image.exposure_time))
+        .join(ImageObject, ImageObject.image_id == Image.id)
+        .filter(ImageObject.object_id == object_id)
+        .group_by(Image.filter_name)
+        .all()
+    )
+
+    by_filter = {}
+    total_images = 0
+    total_exposure = 0.0
+
+    for filter_name, count, exposure in filter_stats:
+        key = filter_name or "Unknown"
+        by_filter[key] = count
+        total_images += count
+        if exposure:
+            total_exposure += exposure
+
+    return FilterStatsResponse(
+        by_filter=by_filter,
+        total_images=total_images,
+        total_exposure_seconds=total_exposure,
     )

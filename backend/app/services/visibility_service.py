@@ -515,8 +515,9 @@ class VisibilityService:
         lat_rad = self._location.lat.rad
         lat_deg = self._location.lat.deg
 
-        # Calculate max altitude analytically: max_alt = 90 - |lat - dec|
-        max_altitudes = 90.0 - np.abs(lat_deg - decs)
+        # Calculate theoretical max altitude analytically: max_alt = 90 - |lat - dec|
+        # This is the altitude at transit (meridian crossing)
+        theoretical_max_altitudes = 90.0 - np.abs(lat_deg - decs)
 
         # Calculate transit times from RA and local sidereal time at midnight
         next_midnight = datetime(
@@ -538,19 +539,53 @@ class VisibilityService:
         )
         current_altitudes = np.asarray(current_altaz.alt.deg)
 
+        # Pre-compute trig values for altitude calculations
+        dec_rad = np.radians(decs)
+        sin_lat = np.sin(lat_rad)
+        cos_lat = np.cos(lat_rad)
+        sin_dec = np.sin(dec_rad)
+        cos_dec = np.cos(dec_rad)
+
+        # Calculate max altitude during darkness (not theoretical max)
+        # If transit occurs during darkness, max = theoretical max
+        # Otherwise, max = max(altitude at darkness start, altitude at darkness end)
+        max_altitudes = theoretical_max_altitudes.copy()
+
+        if darkness_start_hour is not None and darkness_end_hour is not None:
+            # Hour angle at darkness start and end for each object
+            # HA = LST - RA, and LST = LST_midnight + hours_from_midnight
+            # So HA at time t = (LST_midnight + t) - RA/15 = t - (RA/15 - LST_midnight)
+            # Since transit_hours = (RA/15 - LST_midnight) mod 24 adjusted to [-12, 12]
+            # HA at time t = t - transit_hours (in hours)
+            ha_at_darkness_start = (darkness_start_hour - transit_hours) * 15.0  # Convert to degrees
+            ha_at_darkness_end = (darkness_end_hour - transit_hours) * 15.0
+
+            ha_start_rad = np.radians(ha_at_darkness_start)
+            ha_end_rad = np.radians(ha_at_darkness_end)
+
+            # Calculate altitude at darkness boundaries using:
+            # sin(alt) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(HA)
+            sin_alt_at_start = sin_lat * sin_dec + cos_lat * cos_dec * np.cos(ha_start_rad)
+            sin_alt_at_end = sin_lat * sin_dec + cos_lat * cos_dec * np.cos(ha_end_rad)
+
+            alt_at_darkness_start = np.degrees(np.arcsin(np.clip(sin_alt_at_start, -1, 1)))
+            alt_at_darkness_end = np.degrees(np.arcsin(np.clip(sin_alt_at_end, -1, 1)))
+
+            # Determine if transit occurs during darkness
+            # Transit is at hour 0 relative to transit_hours, so it's at transit_hours from midnight
+            transit_in_darkness = (transit_hours >= darkness_start_hour) & (transit_hours <= darkness_end_hour)
+
+            # For objects where transit is NOT during darkness, use max of boundary altitudes
+            max_alt_during_darkness = np.maximum(alt_at_darkness_start, alt_at_darkness_end)
+            max_altitudes = np.where(transit_in_darkness, theoretical_max_altitudes, max_alt_during_darkness)
+
         # Calculate hours above min altitude during darkness
         # Using analytical approximation based on hour angle
         # Object is above min_alt when: sin(alt) >= sin(min_alt)
         # sin(alt) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(HA)
         # Solving for HA: cos(HA) = (sin(min_alt) - sin(lat)*sin(dec)) / (cos(lat)*cos(dec))
 
-        dec_rad = np.radians(decs)
         min_alt_rad = np.radians(min_altitude)
-
-        sin_lat = np.sin(lat_rad)
-        cos_lat = np.cos(lat_rad)
-        sin_dec = np.sin(dec_rad)
-        cos_dec = np.cos(dec_rad)
 
         # Calculate the cosine of hour angle at which altitude = min_altitude
         cos_ha_limit = (np.sin(min_alt_rad) - sin_lat * sin_dec) / (cos_lat * cos_dec + 1e-10)
