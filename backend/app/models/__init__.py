@@ -3,6 +3,7 @@ from app.models.images import Image
 from app.models.image_objects import ImageObject
 from app.models.configuration import Configuration
 from app.models.projects import Project, ProjectTarget, ProjectImage
+from app.models.showcases import ObjectShowcase
 
 __all__ = [
     "AstroObject",
@@ -13,4 +14,5 @@ __all__ = [
     "Project",
     "ProjectTarget",
     "ProjectImage",
+    "ObjectShowcase",
 ]

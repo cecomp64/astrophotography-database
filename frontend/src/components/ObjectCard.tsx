@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AstroObject, VisibilityInfo, objectsApi } from '../api/client'
 import { formatRA, formatDec } from '../utils/coordinates'
 import MiniAltitudeChart from './MiniAltitudeChart'
+import ShowcaseImage from './ShowcaseImage'
 
 interface ObjectCardProps {
   object: AstroObject
@@ -51,12 +52,24 @@ export default function ObjectCard({ object, visibility }: ObjectCardProps) {
       to={`/objects/${object.id}`}
       className="card hover:border-blue-500 transition-colors block"
     >
-      <div className="flex justify-between items-start gap-3 mb-2">
-        <h3 className="text-lg font-semibold">{object.primary_name}</h3>
-        {object.ra !== null && object.dec !== null && (
-          <MiniAltitudeChart objectId={object.id} width={100} height={32} />
-        )}
-      </div>
+      <div className="flex gap-3">
+        {/* Showcase thumbnail */}
+        <ShowcaseImage
+          objectId={object.id}
+          objectName={object.primary_name}
+          ra={object.ra}
+          dec={object.dec}
+          size="sm"
+          className="flex-shrink-0"
+        />
+
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-start gap-3 mb-2">
+            <h3 className="text-lg font-semibold truncate">{object.primary_name}</h3>
+            {object.ra !== null && object.dec !== null && (
+              <MiniAltitudeChart objectId={object.id} width={100} height={32} />
+            )}
+          </div>
 
       {/* Visibility info - always shown when data is available */}
       {(maxAlt !== null && maxAlt !== undefined) && (
@@ -143,6 +156,8 @@ export default function ObjectCard({ object, visibility }: ObjectCardProps) {
           {object.image_count} image{object.image_count !== 1 ? 's' : ''}
         </div>
       ) : null}
+        </div>
+      </div>
     </Link>
   )
 }

@@ -13,7 +13,7 @@ from app.database import engine, Base
 from app.routers import (
     objects_router, images_router, indexer_router,
     catalogue_router, configuration_router, projects_router, files_router,
-    export_router
+    export_router, showcases_router
 )
 
 # Configure logging
@@ -112,6 +112,7 @@ app.include_router(configuration_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
 app.include_router(export_router, prefix="/api")
+app.include_router(showcases_router, prefix="/api")
 
 @app.get("/")
 def root():

@@ -6,6 +6,7 @@ from app.routers.configuration import router as configuration_router
 from app.routers.projects import router as projects_router
 from app.routers.files import router as files_router
 from app.routers.export import router as export_router
+from app.routers.showcases import router as showcases_router
 
 __all__ = [
     "objects_router",
@@ -16,4 +17,5 @@ __all__ = [
     "projects_router",
     "files_router",
     "export_router",
+    "showcases_router",
 ]

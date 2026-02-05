@@ -24,6 +24,7 @@ class AstroObject(Base):
     images = relationship("Image", back_populates="object")  # Legacy via object_id FK
     image_objects = relationship("ImageObject", back_populates="object", cascade="all, delete-orphan")
     project_targets = relationship("ProjectTarget", back_populates="object", cascade="all, delete-orphan")
+    showcase = relationship("ObjectShowcase", back_populates="object", uselist=False, cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_objects_primary_name_trgm", "primary_name", postgresql_using="gin",

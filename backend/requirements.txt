@@ -20,6 +20,9 @@ telescopius-api==1.0.0
 # HTTP client
 httpx==0.26.0
 
+# Image processing
+Pillow>=10.0.0
+
 # Utilities
 python-dotenv==1.0.0
 

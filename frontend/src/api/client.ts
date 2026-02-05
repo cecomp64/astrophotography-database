@@ -428,6 +428,18 @@ export interface FilterStats {
   total_exposure_seconds: number
 }
 
+export interface Showcase {
+  id: number
+  object_id: number
+  source_type: 'upload' | 'indexed' | 'survey'
+  file_path: string
+  original_image_id: number | null
+  survey_name: string | null
+  cached_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 // API functions
 export const objectsApi = {
   list: async (params?: { skip?: number; limit?: number; object_type?: string; constellation?: string; primary_only?: boolean }) => {
@@ -830,5 +842,47 @@ export const projectsApi = {
       params: { limit },
     })
     return response.data
+  },
+}
+
+export const showcasesApi = {
+  get: async (objectId: number) => {
+    const response = await apiClient.get<Showcase | null>(`/showcases/objects/${objectId}`)
+    return response.data
+  },
+
+  getImageUrl: (objectId: number) => {
+    return `${API_BASE_URL}/showcases/objects/${objectId}/image`
+  },
+
+  upload: async (objectId: number, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await apiClient.post<Showcase>(
+      `/showcases/objects/${objectId}/upload`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+    return response.data
+  },
+
+  setFromIndexed: async (objectId: number, imageId: number) => {
+    const response = await apiClient.post<Showcase>(
+      `/showcases/objects/${objectId}/from-indexed/${imageId}`
+    )
+    return response.data
+  },
+
+  fetchFromSurvey: async (objectId: number, survey = 'DSS2 Red') => {
+    const response = await apiClient.post<Showcase>(
+      `/showcases/objects/${objectId}/from-survey`,
+      null,
+      { params: { survey } }
+    )
+    return response.data
+  },
+
+  delete: async (objectId: number) => {
+    await apiClient.delete(`/showcases/objects/${objectId}`)
   },
 }

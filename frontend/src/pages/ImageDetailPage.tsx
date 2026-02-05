@@ -1,16 +1,24 @@
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { imagesApi } from '../api/client'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { imagesApi, showcasesApi } from '../api/client'
 import { formatRA, formatDec } from '../utils/coordinates'
 
 export default function ImageDetailPage() {
   const { id } = useParams<{ id: string }>()
   const imageId = parseInt(id || '0', 10)
+  const queryClient = useQueryClient()
 
   const { data: image, isLoading, error } = useQuery({
     queryKey: ['image', imageId],
     queryFn: () => imagesApi.get(imageId),
     enabled: imageId > 0,
+  })
+
+  const setShowcaseMutation = useMutation({
+    mutationFn: (objectId: number) => showcasesApi.setFromIndexed(objectId, imageId),
+    onSuccess: (_, objectId) => {
+      queryClient.invalidateQueries({ queryKey: ['showcase', objectId] })
+    },
   })
 
   const formatDate = (dateStr: string | null) => {
@@ -156,14 +164,29 @@ export default function ImageDetailPage() {
         {primaryObject && (
           <div className="mb-4">
             <h3 className="text-sm text-gray-400 mb-2">Primary Target</h3>
-            <Link
-              to={`/objects/${primaryObject.object_id}`}
-              className="inline-flex items-center gap-2 px-3 py-2 bg-blue-900/30 border border-blue-700 rounded-lg hover:bg-blue-900/50 transition-colors"
-            >
-              <span className="text-blue-400 font-medium">
-                {primaryObject.object_name || `Object #${primaryObject.object_id}`}
-              </span>
-            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                to={`/objects/${primaryObject.object_id}`}
+                className="inline-flex items-center gap-2 px-3 py-2 bg-blue-900/30 border border-blue-700 rounded-lg hover:bg-blue-900/50 transition-colors"
+              >
+                <span className="text-blue-400 font-medium">
+                  {primaryObject.object_name || `Object #${primaryObject.object_id}`}
+                </span>
+              </Link>
+              <button
+                onClick={() => setShowcaseMutation.mutate(primaryObject.object_id)}
+                disabled={setShowcaseMutation.isPending}
+                className="btn btn-secondary text-sm"
+              >
+                {setShowcaseMutation.isPending ? 'Setting...' : 'Set as showcase'}
+              </button>
+              {setShowcaseMutation.isSuccess && (
+                <span className="text-green-400 text-sm">Showcase updated!</span>
+              )}
+              {setShowcaseMutation.isError && (
+                <span className="text-red-400 text-sm">Failed to set showcase</span>
+              )}
+            </div>
           </div>
         )}
 

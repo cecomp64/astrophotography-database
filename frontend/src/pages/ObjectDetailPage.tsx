@@ -4,6 +4,8 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { objectsApi, imagesApi } from '../api/client'
 import ImageTable from '../components/ImageTable'
 import AltitudeChart from '../components/AltitudeChart'
+import ShowcaseImage from '../components/ShowcaseImage'
+import ShowcaseManager from '../components/ShowcaseManager'
 import { formatRA, formatDec } from '../utils/coordinates'
 
 type SortField = 'date_taken' | 'exposure_time' | 'filter_name'
@@ -17,6 +19,7 @@ export default function ObjectDetailPage() {
   const [pageSize, setPageSize] = useState(25)
   const [sortBy, setSortBy] = useState<SortField>('date_taken')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const [showcaseExpanded, setShowcaseExpanded] = useState(false)
 
   const { data: object, isLoading: objectLoading } = useQuery({
     queryKey: ['object', objectId],
@@ -74,65 +77,88 @@ export default function ObjectDetailPage() {
       </div>
 
       <div className="card">
-        <h1 className="text-3xl font-bold mb-4">{object.primary_name}</h1>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {object.object_type && (
-            <div>
-              <div className="text-gray-400 text-sm">Type</div>
-              <div className="text-lg">{object.object_type}</div>
+        <div className="flex gap-6">
+          <ShowcaseImage
+            objectId={object.id}
+            objectName={object.primary_name}
+            ra={object.ra}
+            dec={object.dec}
+            size="lg"
+            className="flex-shrink-0"
+          />
+          <div className="flex-1 min-w-0">
+            <h1 className="text-3xl font-bold mb-4">{object.primary_name}</h1>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+              {object.object_type && (
+                <div>
+                  <div className="text-gray-400 text-xs">Type</div>
+                  <div>{object.object_type}</div>
+                </div>
+              )}
+              {object.constellation && (
+                <div>
+                  <div className="text-gray-400 text-xs">Constellation</div>
+                  <div>{object.constellation}</div>
+                </div>
+              )}
+              {object.magnitude !== null && (
+                <div>
+                  <div className="text-gray-400 text-xs">Magnitude</div>
+                  <div>{object.magnitude.toFixed(1)}</div>
+                </div>
+              )}
+              {object.ra !== null && (
+                <div>
+                  <div className="text-gray-400 text-xs">RA</div>
+                  <div className="font-mono">{formatRA(object.ra)}</div>
+                </div>
+              )}
+              {object.dec !== null && (
+                <div>
+                  <div className="text-gray-400 text-xs">Dec</div>
+                  <div className="font-mono">{formatDec(object.dec)}</div>
+                </div>
+              )}
+              <div>
+                <div className="text-gray-400 text-xs">Images</div>
+                <div>{totalImages}</div>
+              </div>
             </div>
-          )}
 
-          {object.constellation && (
-            <div>
-              <div className="text-gray-400 text-sm">Constellation</div>
-              <div className="text-lg">{object.constellation}</div>
-            </div>
-          )}
-
-          {object.magnitude !== null && (
-            <div>
-              <div className="text-gray-400 text-sm">Magnitude</div>
-              <div className="text-lg">{object.magnitude.toFixed(1)}</div>
-            </div>
-          )}
-
-          {object.ra !== null && (
-            <div>
-              <div className="text-gray-400 text-sm">Right Ascension</div>
-              <div className="text-lg font-mono">{formatRA(object.ra)}</div>
-            </div>
-          )}
-
-          {object.dec !== null && (
-            <div>
-              <div className="text-gray-400 text-sm">Declination</div>
-              <div className="text-lg font-mono">{formatDec(object.dec)}</div>
-            </div>
-          )}
-
-          <div>
-            <div className="text-gray-400 text-sm">Images</div>
-            <div className="text-lg">{totalImages}</div>
+            {object.aliases && object.aliases.length > 0 && (
+              <div className="mt-4">
+                <div className="flex flex-wrap gap-1">
+                  {object.aliases.slice(0, 5).map((alias) => (
+                    <span key={alias.id} className="badge badge-blue text-xs">
+                      {alias.alias_name}
+                    </span>
+                  ))}
+                  {object.aliases.length > 5 && (
+                    <span className="badge badge-blue text-xs">+{object.aliases.length - 5}</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {object.aliases && object.aliases.length > 0 && (
-          <div className="mt-6">
-            <div className="text-gray-400 text-sm mb-2">Aliases</div>
-            <div className="flex flex-wrap gap-2">
-              {object.aliases.map((alias) => (
-                <span key={alias.id} className="badge badge-blue">
-                  {alias.alias_name}
-                  {alias.catalog && (
-                    <span className="text-blue-300 ml-1">({alias.catalog})</span>
-                  )}
-                </span>
-              ))}
+        {/* Collapsible Showcase Manager */}
+        <div className="border-t border-space-600 mt-6 pt-4">
+          <button
+            onClick={() => setShowcaseExpanded(!showcaseExpanded)}
+            className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-200 transition-colors"
+          >
+            <span className={`transform transition-transform ${showcaseExpanded ? 'rotate-90' : ''}`}>
+              ▶
+            </span>
+            <span>Manage Showcase Image</span>
+          </button>
+          {showcaseExpanded && (
+            <div className="mt-4">
+              <ShowcaseManager object={object} />
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {object.ra !== null && object.dec !== null && (
