@@ -144,6 +144,8 @@ def get_well_placed_catalogue_objects(
             object_type=obj.object_type,
             constellation=obj.constellation,
             magnitude=obj.magnitude,
+            size_major=obj.size_major,
+            size_minor=obj.size_minor,
             ra=obj.ra,
             dec=obj.dec,
             image_count=0,

@@ -396,6 +396,8 @@ export interface WellPlacedObject {
   object_type: string | null
   constellation: string | null
   magnitude: number | null
+  size_major: number | null
+  size_minor: number | null
   ra: number | null
   dec: number | null
   image_count: number

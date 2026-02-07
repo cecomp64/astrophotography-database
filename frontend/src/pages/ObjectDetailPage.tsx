@@ -8,6 +8,14 @@ import ShowcaseImage from '../components/ShowcaseImage'
 import ShowcaseManager from '../components/ShowcaseManager'
 import { formatRA, formatDec } from '../utils/coordinates'
 
+function formatSize(major: number | null | undefined, minor: number | null | undefined): string | null {
+  if (major == null) return null
+  if (minor == null || major === minor) {
+    return `${major.toFixed(1)}'`
+  }
+  return `${major.toFixed(1)}' × ${minor.toFixed(1)}'`
+}
+
 type SortField = 'date_taken' | 'exposure_time' | 'filter_name'
 type SortOrder = 'asc' | 'desc'
 
@@ -87,7 +95,12 @@ export default function ObjectDetailPage() {
             className="flex-shrink-0"
           />
           <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-bold mb-4">{object.primary_name}</h1>
+            <h1 className="text-3xl font-bold mb-1">{object.primary_name}</h1>
+            {(object.object_type || formatSize(object.size_major, object.size_minor)) && (
+              <p className="text-gray-400 mb-4">
+                {[object.object_type, formatSize(object.size_major, object.size_minor)].filter(Boolean).join(' • ')}
+              </p>
+            )}
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
               {object.object_type && (
                 <div>

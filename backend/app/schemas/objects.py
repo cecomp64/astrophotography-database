@@ -27,6 +27,8 @@ class ObjectBase(BaseModel):
     dec: Optional[float] = None
     object_type: Optional[str] = None
     magnitude: Optional[float] = None
+    size_major: Optional[float] = None  # Major axis in arcminutes
+    size_minor: Optional[float] = None  # Minor axis in arcminutes
     constellation: Optional[str] = None
 
 
@@ -40,6 +42,8 @@ class ObjectUpdate(BaseModel):
     dec: Optional[float] = None
     object_type: Optional[str] = None
     magnitude: Optional[float] = None
+    size_major: Optional[float] = None
+    size_minor: Optional[float] = None
     constellation: Optional[str] = None
 
 
@@ -75,6 +79,8 @@ class WellPlacedObjectResponse(BaseModel):
     object_type: Optional[str] = None
     constellation: Optional[str] = None
     magnitude: Optional[float] = None
+    size_major: Optional[float] = None
+    size_minor: Optional[float] = None
     ra: Optional[float] = None
     dec: Optional[float] = None
     image_count: int

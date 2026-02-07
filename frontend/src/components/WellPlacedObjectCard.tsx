@@ -2,6 +2,14 @@ import { Link } from 'react-router-dom'
 import { WellPlacedObject } from '../api/client'
 import MiniAltitudeChart from './MiniAltitudeChart'
 
+function formatSize(major: number | null | undefined, minor: number | null | undefined): string | null {
+  if (major == null) return null
+  if (minor == null || major === minor) {
+    return `${major.toFixed(1)}'`
+  }
+  return `${major.toFixed(1)}' × ${minor.toFixed(1)}'`
+}
+
 interface WellPlacedObjectCardProps {
   object: WellPlacedObject
   showChart?: boolean
@@ -11,6 +19,8 @@ export default function WellPlacedObjectCard({
   object,
   showChart = true,
 }: WellPlacedObjectCardProps) {
+  const size = formatSize(object.size_major, object.size_minor)
+
   return (
     <Link
       to={`/objects/${object.id}`}
@@ -19,7 +29,7 @@ export default function WellPlacedObjectCard({
       <div className="min-w-0 flex-1">
         <div className="font-medium truncate">{object.primary_name}</div>
         <div className="text-sm text-gray-400 truncate">
-          {object.object_type}
+          {[object.object_type, size].filter(Boolean).join(' • ')}
           {object.constellation && ` in ${object.constellation}`}
         </div>
       </div>
