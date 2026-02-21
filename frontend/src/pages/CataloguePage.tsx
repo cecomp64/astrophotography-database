@@ -2,11 +2,13 @@ import { useState, useEffect, useMemo } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
-  catalogueApi,
+  catalogueApi as onlineCatalogueApi,
   CatalogueObject,
   WellPlacedObject,
   WellPlacedObjectsResponse,
 } from '../api/client'
+import { useCatalogueApi } from '../pwa/hooks/useApi'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import { formatRA, formatDec } from '../utils/coordinates'
 import MiniAltitudeChart from '../components/MiniAltitudeChart'
 import CreateObjectModal from '../components/CreateObjectModal'
@@ -41,6 +43,8 @@ function SortableHeader({ label, field, currentSort, currentOrder, onSort }: Sor
 }
 
 export default function CataloguePage() {
+  const catalogueApi = useCatalogueApi()
+  const pwa = isPwaMode()
   const [catalogFilter, setCatalogFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [constellationFilter, setConstellationFilter] = useState('')
@@ -79,7 +83,7 @@ export default function CataloguePage() {
     sortOrder,
   ])
 
-  // Query for well-placed objects (when visibleTonight is true)
+  // Query for well-placed objects (when visibleTonight is true) - only in desktop mode
   const { data: wellPlacedData, isLoading: wellPlacedLoading } = useQuery({
     queryKey: [
       'catalogueWellPlaced',
@@ -95,7 +99,7 @@ export default function CataloguePage() {
       page,
     ],
     queryFn: () =>
-      catalogueApi.getWellPlaced({
+      onlineCatalogueApi.getWellPlaced({
         skip: page * pageSize,
         limit: pageSize,
         min_altitude: minAltitude,
@@ -108,7 +112,7 @@ export default function CataloguePage() {
         min_size: minSize ? parseFloat(minSize) : undefined,
         max_size: maxSize ? parseFloat(maxSize) : undefined,
       }),
-    enabled: visibleTonight,
+    enabled: visibleTonight && !pwa,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
   })
@@ -333,12 +337,14 @@ export default function CataloguePage() {
               {total.toLocaleString()} objects
             </span>
           )}
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="btn btn-primary"
-          >
-            + Create Object
-          </button>
+          {!pwa && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="btn btn-primary"
+            >
+              + Create Object
+            </button>
+          )}
         </div>
       </div>
 
@@ -467,15 +473,17 @@ export default function CataloguePage() {
             />
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={visibleTonight}
-              onChange={(e) => setVisibleTonight(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-800"
-            />
-            Visible tonight
-          </label>
+          {!pwa && (
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={visibleTonight}
+                onChange={(e) => setVisibleTonight(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-800"
+              />
+              Visible tonight
+            </label>
+          )}
 
           {visibleTonight && (
             <div className="flex items-center gap-2">

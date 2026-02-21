@@ -1,14 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { imagesApi, objectsApi, catalogueApi, projectsApi } from '../api/client'
+import { projectsApi as onlineProjectsApi, catalogueApi as onlineCatalogueApi, WellPlacedProject, WellPlacedObject } from '../api/client'
+import { useImagesApi, useObjectsApi, useCatalogueApi } from '../pwa/hooks/useApi'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import SearchBar from '../components/SearchBar'
 import { WellPlacedCard } from '../components/ProjectCard'
 import WellPlacedObjectCard from '../components/WellPlacedObjectCard'
 
 export default function Dashboard() {
+  const imagesApi = useImagesApi()
+  const objectsApi = useObjectsApi()
+  const catalogueApi = useCatalogueApi()
+  const pwa = isPwaMode()
+
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['imageStats'],
-    queryFn: imagesApi.getStats,
+    queryFn: () => imagesApi.getStats(),
   })
 
   const { data: recentObjects } = useQuery({
@@ -18,17 +25,20 @@ export default function Dashboard() {
 
   const { data: catalogues } = useQuery({
     queryKey: ['catalogues'],
-    queryFn: catalogueApi.getCatalogs,
+    queryFn: () => catalogueApi.getCatalogs(),
   })
 
+  // Well-placed features not available in PWA mode (requires live location/time calculation)
   const { data: wellPlacedProjects } = useQuery({
     queryKey: ['wellPlacedProjects'],
-    queryFn: () => projectsApi.getWellPlaced(5),
+    queryFn: () => onlineProjectsApi.getWellPlaced(5),
+    enabled: !pwa,
   })
 
   const { data: wellPlacedObjects } = useQuery({
     queryKey: ['wellPlacedObjects'],
-    queryFn: () => catalogueApi.getWellPlaced({ limit: 5, min_size: 10 }),
+    queryFn: () => onlineCatalogueApi.getWellPlaced({ limit: 5, min_size: 10 }),
+    enabled: !pwa,
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })
 
@@ -79,7 +89,7 @@ export default function Dashboard() {
                 </Link>
               </div>
               <div className="space-y-2">
-                {wellPlacedProjects.projects.map((project) => (
+                {wellPlacedProjects.projects.map((project: WellPlacedProject) => (
                   <WellPlacedCard key={project.project_id} project={project} />
                 ))}
               </div>
@@ -114,7 +124,7 @@ export default function Dashboard() {
               </Link>
             </div>
             <div className="space-y-2">
-              {wellPlacedObjects.objects.map((obj) => (
+              {wellPlacedObjects.objects.map((obj: WellPlacedObject) => (
                 <WellPlacedObjectCard key={obj.id} object={obj} />
               ))}
             </div>

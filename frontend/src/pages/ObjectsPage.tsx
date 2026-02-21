@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  objectsApi,
   AstroObject,
   WellPlacedObject,
   WellPlacedObjectsResponse,
 } from '../api/client'
+import { useObjectsApi } from '../pwa/hooks/useApi'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import ObjectCard from '../components/ObjectCard'
 import SearchBar from '../components/SearchBar'
 import CreateObjectModal from '../components/CreateObjectModal'
@@ -14,13 +15,15 @@ import CreateObjectModal from '../components/CreateObjectModal'
 const PAGE_SIZE = 20
 
 export default function ObjectsPage() {
+  const objectsApi = useObjectsApi()
+  const pwa = isPwaMode()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [typeFilter, setTypeFilter] = useState('')
   const [constellationFilter, setConstellationFilter] = useState('')
   const [primaryOnly, setPrimaryOnly] = useState(true)
   const [visibleTonight, setVisibleTonight] = useState(
-    searchParams.get('visible_tonight') === 'true'
+    !pwa && searchParams.get('visible_tonight') === 'true' // Disable in PWA mode
   )
   const [minAltitude, setMinAltitude] = useState(30)
   const [page, setPage] = useState(0)
@@ -40,7 +43,7 @@ export default function ObjectsPage() {
     setPage(0)
   }, [typeFilter, constellationFilter, primaryOnly, visibleTonight, minAltitude])
 
-  // Query for well-placed objects (when visibleTonight is true)
+  // Query for well-placed objects (when visibleTonight is true) - not available in PWA mode
   const {
     data: wellPlacedData,
     isLoading: wellPlacedLoading,
@@ -55,7 +58,7 @@ export default function ObjectsPage() {
       page,
     ],
     queryFn: () =>
-      objectsApi.getWellPlaced({
+      (objectsApi as typeof import('../api/client').objectsApi).getWellPlaced({
         skip: page * PAGE_SIZE,
         limit: PAGE_SIZE,
         min_altitude: minAltitude,
@@ -63,7 +66,7 @@ export default function ObjectsPage() {
         constellation: constellationFilter || undefined,
         primary_only: primaryOnly,
       }),
-    enabled: visibleTonight,
+    enabled: visibleTonight && !pwa,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
   })

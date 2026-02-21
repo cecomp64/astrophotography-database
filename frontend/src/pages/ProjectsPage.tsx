@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { projectsApi, ProjectCreate } from '../api/client'
+import { projectsApi as onlineProjectsApi, ProjectCreate } from '../api/client'
+import { useProjectsApi } from '../pwa/hooks/useApi'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import ProjectCard from '../components/ProjectCard'
 import ProjectForm from '../components/ProjectForm'
 
 export default function ProjectsPage() {
+  const projectsApi = useProjectsApi()
+  const pwa = isPwaMode()
   const [statusFilter, setStatusFilter] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(false)
   const queryClient = useQueryClient()
@@ -18,8 +22,9 @@ export default function ProjectsPage() {
       }),
   })
 
+  // Create only works in desktop mode
   const createMutation = useMutation({
-    mutationFn: (data: ProjectCreate) => projectsApi.create(data),
+    mutationFn: (data: ProjectCreate) => onlineProjectsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       setShowCreateForm(false)
@@ -30,12 +35,14 @@ export default function ProjectsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold">Projects</h1>
-        <button
-          onClick={() => setShowCreateForm(true)}
-          className="btn btn-primary"
-        >
-          New Project
-        </button>
+        {!pwa && (
+          <button
+            onClick={() => setShowCreateForm(true)}
+            className="btn btn-primary"
+          >
+            New Project
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3">

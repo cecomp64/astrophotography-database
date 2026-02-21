@@ -1,12 +1,16 @@
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { imagesApi, showcasesApi } from '../api/client'
+import { showcasesApi } from '../api/client'
+import { useImagesApi } from '../pwa/hooks/useApi'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import { formatRA, formatDec } from '../utils/coordinates'
 
 export default function ImageDetailPage() {
   const { id } = useParams<{ id: string }>()
   const imageId = parseInt(id || '0', 10)
   const queryClient = useQueryClient()
+  const imagesApi = useImagesApi()
+  const pwa = isPwaMode()
 
   const { data: image, isLoading, error } = useQuery({
     queryKey: ['image', imageId],
@@ -173,18 +177,22 @@ export default function ImageDetailPage() {
                   {primaryObject.object_name || `Object #${primaryObject.object_id}`}
                 </span>
               </Link>
-              <button
-                onClick={() => setShowcaseMutation.mutate(primaryObject.object_id)}
-                disabled={setShowcaseMutation.isPending}
-                className="btn btn-secondary text-sm"
-              >
-                {setShowcaseMutation.isPending ? 'Setting...' : 'Set as showcase'}
-              </button>
-              {setShowcaseMutation.isSuccess && (
-                <span className="text-green-400 text-sm">Showcase updated!</span>
-              )}
-              {setShowcaseMutation.isError && (
-                <span className="text-red-400 text-sm">Failed to set showcase</span>
+              {!pwa && (
+                <>
+                  <button
+                    onClick={() => setShowcaseMutation.mutate(primaryObject.object_id)}
+                    disabled={setShowcaseMutation.isPending}
+                    className="btn btn-secondary text-sm"
+                  >
+                    {setShowcaseMutation.isPending ? 'Setting...' : 'Set as showcase'}
+                  </button>
+                  {setShowcaseMutation.isSuccess && (
+                    <span className="text-green-400 text-sm">Showcase updated!</span>
+                  )}
+                  {setShowcaseMutation.isError && (
+                    <span className="text-red-400 text-sm">Failed to set showcase</span>
+                  )}
+                </>
               )}
             </div>
           </div>

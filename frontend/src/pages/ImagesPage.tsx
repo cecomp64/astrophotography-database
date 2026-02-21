@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { imagesApi, objectsApi, ImageGroup } from '../api/client'
+import { ImageGroup } from '../api/client'
+import { useImagesApi, useObjectsApi } from '../pwa/hooks/useApi'
 import ImageTable from '../components/ImageTable'
 import SessionCard from '../components/SessionCard'
 
@@ -10,6 +11,9 @@ type ViewMode = 'grouped' | 'list'
 const PAGE_SIZE = 20
 
 export default function ImagesPage() {
+  const imagesApi = useImagesApi()
+  const objectsApi = useObjectsApi()
+
   const [viewMode, setViewMode] = useState<ViewMode>('grouped')
   const [filterName, setFilterName] = useState('')
   const [telescope, setTelescope] = useState('')
@@ -56,13 +60,13 @@ export default function ImagesPage() {
 
   const { data: objectsWithImages } = useQuery({
     queryKey: ['objectsWithImages'],
-    queryFn: () => objectsApi.list({ limit: 500, primary_only: true }),
+    queryFn: () => objectsApi.list({ limit: 500 }),
     staleTime: 5 * 60 * 1000,
   })
 
   const { data: stats } = useQuery({
     queryKey: ['imageStats'],
-    queryFn: imagesApi.getStats,
+    queryFn: () => imagesApi.getStats(),
     staleTime: 5 * 60 * 1000,
   })
 

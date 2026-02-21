@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { objectsApi, imagesApi } from '../api/client'
+import { useObjectsApi, useImagesApi } from '../pwa/hooks/useApi'
 import ImageTable from '../components/ImageTable'
 import AltitudeChart from '../components/AltitudeChart'
 import ShowcaseImage from '../components/ShowcaseImage'
@@ -20,6 +20,8 @@ type SortField = 'date_taken' | 'exposure_time' | 'filter_name'
 type SortOrder = 'asc' | 'desc'
 
 export default function ObjectDetailPage() {
+  const objectsApi = useObjectsApi()
+  const imagesApi = useImagesApi()
   const { id } = useParams<{ id: string }>()
   const objectId = parseInt(id!, 10)
 

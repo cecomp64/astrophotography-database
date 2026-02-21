@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { projectsApi, objectsApi, imagesApi, ProjectUpdate, ProjectTarget, ImageGroup } from '../api/client'
+import { projectsApi as onlineProjectsApi, ProjectUpdate, ProjectTarget, ImageGroup } from '../api/client'
+import { useProjectsApi, useObjectsApi, useImagesApi } from '../pwa/hooks/useApi'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import ExposureProgress from '../components/ExposureProgress'
 import ProjectForm from '../components/ProjectForm'
 import AltitudeChart from '../components/AltitudeChart'
@@ -355,6 +357,10 @@ export default function ProjectDetailPage() {
   const projectId = parseInt(id!, 10)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const projectsApi = useProjectsApi()
+  const objectsApi = useObjectsApi()
+  const imagesApi = useImagesApi()
+  const pwa = isPwaMode()
 
   const [showEditForm, setShowEditForm] = useState(false)
   const [showAddTarget, setShowAddTarget] = useState(false)
@@ -381,8 +387,9 @@ export default function ProjectDetailPage() {
     enabled: linkingTarget !== null,
   })
 
+  // Mutations only work in desktop mode (online API)
   const updateMutation = useMutation({
-    mutationFn: (data: ProjectUpdate) => projectsApi.update(projectId, data),
+    mutationFn: (data: ProjectUpdate) => onlineProjectsApi.update(projectId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       queryClient.invalidateQueries({ queryKey: ['projects'] })
@@ -391,7 +398,7 @@ export default function ProjectDetailPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: () => projectsApi.delete(projectId),
+    mutationFn: () => onlineProjectsApi.delete(projectId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       navigate('/projects')
@@ -400,7 +407,7 @@ export default function ProjectDetailPage() {
 
   const addTargetMutation = useMutation({
     mutationFn: ({ objectId, isPrimary }: { objectId: number; isPrimary: boolean }) =>
-      projectsApi.addTarget(projectId, objectId, isPrimary),
+      onlineProjectsApi.addTarget(projectId, objectId, isPrimary),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       setShowAddTarget(false)
@@ -410,7 +417,7 @@ export default function ProjectDetailPage() {
 
   const updateTargetMutation = useMutation({
     mutationFn: ({ objectId, data }: { objectId: number; data: { is_primary?: boolean; exposure_goals?: Record<string, number> | null; notes?: string | null } }) =>
-      projectsApi.updateTarget(projectId, objectId, data),
+      onlineProjectsApi.updateTarget(projectId, objectId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
       setEditingTarget(null)
@@ -418,7 +425,7 @@ export default function ProjectDetailPage() {
   })
 
   const removeTargetMutation = useMutation({
-    mutationFn: (objectId: number) => projectsApi.removeTarget(projectId, objectId),
+    mutationFn: (objectId: number) => onlineProjectsApi.removeTarget(projectId, objectId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
     },
@@ -426,7 +433,7 @@ export default function ProjectDetailPage() {
 
   const linkImagesMutation = useMutation({
     mutationFn: ({ objectId, group }: { objectId: number; group: ImageGroup }) =>
-      projectsApi.linkImagesFromGroup(projectId, objectId, {
+      onlineProjectsApi.linkImagesFromGroup(projectId, objectId, {
         date: group.date,
         target_name: group.target_name,
         telescope: group.telescope,
@@ -439,7 +446,7 @@ export default function ProjectDetailPage() {
   })
 
   const removeImageMutation = useMutation({
-    mutationFn: (imageId: number) => projectsApi.removeImage(projectId, imageId),
+    mutationFn: (imageId: number) => onlineProjectsApi.removeImage(projectId, imageId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] })
     },
@@ -483,24 +490,26 @@ export default function ProjectDetailPage() {
               {project.status}
             </span>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowEditForm(true)}
-              className="btn btn-secondary"
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => {
-                if (confirm('Are you sure you want to delete this project?')) {
-                  deleteMutation.mutate()
-                }
-              }}
-              className="btn bg-red-600 hover:bg-red-500 text-white"
-            >
-              Delete
-            </button>
-          </div>
+          {!pwa && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowEditForm(true)}
+                className="btn btn-secondary"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm('Are you sure you want to delete this project?')) {
+                    deleteMutation.mutate()
+                  }
+                }}
+                className="btn bg-red-600 hover:bg-red-500 text-white"
+              >
+                Delete
+              </button>
+            </div>
+          )}
         </div>
 
         {project.description && (
@@ -548,12 +557,14 @@ export default function ProjectDetailPage() {
       <div className="card">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold">Targets</h2>
-          <button
-            onClick={() => setShowAddTarget(true)}
-            className="btn btn-secondary text-sm"
-          >
-            Add Target
-          </button>
+          {!pwa && (
+            <button
+              onClick={() => setShowAddTarget(true)}
+              className="btn btn-secondary text-sm"
+            >
+              Add Target
+            </button>
+          )}
         </div>
 
         {project.targets.length > 0 ? (
@@ -582,30 +593,36 @@ export default function ProjectDetailPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                    <button
-                      onClick={() => setEditingTarget(target)}
-                      className="text-blue-400 hover:text-blue-300"
-                    >
-                      Edit
-                    </button>
+                    {!pwa && (
+                      <button
+                        onClick={() => setEditingTarget(target)}
+                        className="text-blue-400 hover:text-blue-300"
+                      >
+                        Edit
+                      </button>
+                    )}
                     <button
                       onClick={() => setSelectedTargetId(target.object_id)}
                       className="text-blue-400 hover:text-blue-300"
                     >
                       Chart
                     </button>
-                    <button
-                      onClick={() => setLinkingTarget(target)}
-                      className="text-blue-400 hover:text-blue-300"
-                    >
-                      Link
-                    </button>
-                    <button
-                      onClick={() => removeTargetMutation.mutate(target.object_id)}
-                      className="text-red-400 hover:text-red-300"
-                    >
-                      Remove
-                    </button>
+                    {!pwa && (
+                      <>
+                        <button
+                          onClick={() => setLinkingTarget(target)}
+                          className="text-blue-400 hover:text-blue-300"
+                        >
+                          Link
+                        </button>
+                        <button
+                          onClick={() => removeTargetMutation.mutate(target.object_id)}
+                          className="text-red-400 hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -739,7 +756,7 @@ export default function ProjectDetailPage() {
                   <th>Date</th>
                   <th>Filter</th>
                   <th>Exposure</th>
-                  <th></th>
+                  {!pwa && <th></th>}
                 </tr>
               </thead>
               <tbody>
@@ -761,14 +778,16 @@ export default function ProjectDetailPage() {
                     <td className="text-sm">
                       {img.exposure_time ? `${img.exposure_time}s` : '-'}
                     </td>
-                    <td>
-                      <button
-                        onClick={() => removeImageMutation.mutate(img.image_id)}
-                        className="text-sm text-red-400 hover:text-red-300"
-                      >
-                        Remove
-                      </button>
-                    </td>
+                    {!pwa && (
+                      <td>
+                        <button
+                          onClick={() => removeImageMutation.mutate(img.image_id)}
+                          className="text-sm text-red-400 hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
