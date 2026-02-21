@@ -14,6 +14,7 @@ import {
   ProjectDetail,
   ProjectTarget,
   ProjectImage,
+  ProjectProgress,
   CatalogueObject,
   CatalogueObjectsResponse,
   CatalogueAlias,
@@ -81,6 +82,174 @@ function mapImage(img: DbImage, associations?: DbImageObject[]): Image {
         angular_distance: a.angular_distance,
       } as ImageObjectAssociation
     }),
+  }
+}
+
+/**
+ * Calculate project progress by comparing actual exposure time vs goals.
+ * Returns progress percentage per filter and overall progress.
+ */
+function calculateProjectProgress(projectId: number): ProjectProgress | null {
+  // Get all targets for this project to aggregate exposure goals
+  const targets = query<DbProjectTarget>(
+    'SELECT * FROM project_targets WHERE project_id = ?',
+    [projectId]
+  )
+
+  if (targets.length === 0) {
+    return null
+  }
+
+  // Aggregate exposure goals across all targets
+  const exposureGoals: Record<string, number> = {}
+  for (const target of targets) {
+    if (target.exposure_goals) {
+      const goals = JSON.parse(target.exposure_goals) as Record<string, number>
+      for (const [filter, seconds] of Object.entries(goals)) {
+        exposureGoals[filter] = (exposureGoals[filter] ?? 0) + seconds
+      }
+    }
+  }
+
+  // If no exposure goals defined, return null
+  if (Object.keys(exposureGoals).length === 0) {
+    return null
+  }
+
+  // Get actual exposure from project images
+  const images = query<{ filter_name: string | null; exposure_time: number | null }>(
+    `SELECT i.filter_name, i.exposure_time
+     FROM project_images pi
+     JOIN images i ON pi.image_id = i.id
+     WHERE pi.project_id = ?`,
+    [projectId]
+  )
+
+  // Aggregate actual exposure by filter
+  const actualExposure: Record<string, number> = {}
+  let totalFrames = 0
+  let totalExposureSeconds = 0
+
+  for (const img of images) {
+    const filter = img.filter_name ?? 'Unknown'
+    const exposure = img.exposure_time ?? 0
+    actualExposure[filter] = (actualExposure[filter] ?? 0) + exposure
+    totalFrames++
+    totalExposureSeconds += exposure
+  }
+
+  // Calculate progress percentage per filter
+  const progressPercent: Record<string, number> = {}
+  let totalGoalSeconds = 0
+  let totalAchievedSeconds = 0
+
+  for (const [filter, goalSeconds] of Object.entries(exposureGoals)) {
+    const actual = actualExposure[filter] ?? 0
+    const percent = goalSeconds > 0 ? Math.min(100, (actual / goalSeconds) * 100) : 0
+    progressPercent[filter] = Math.round(percent * 10) / 10 // Round to 1 decimal
+    totalGoalSeconds += goalSeconds
+    totalAchievedSeconds += Math.min(actual, goalSeconds) // Cap at goal
+  }
+
+  // Overall progress is weighted average based on goal seconds
+  const overallProgress = totalGoalSeconds > 0
+    ? Math.round((totalAchievedSeconds / totalGoalSeconds) * 1000) / 10
+    : 0
+
+  return {
+    exposure_goals: exposureGoals,
+    actual_exposure: actualExposure,
+    progress_percent: progressPercent,
+    overall_progress: overallProgress,
+    total_frames: totalFrames,
+    total_exposure_seconds: totalExposureSeconds,
+  }
+}
+
+/**
+ * Get the recommended filter to work on (lowest progress percentage).
+ */
+function getRecommendedFilter(progress: ProjectProgress | null): string | null {
+  if (!progress || Object.keys(progress.progress_percent).length === 0) {
+    return null
+  }
+
+  let lowestFilter: string | null = null
+  let lowestPercent = Infinity
+
+  for (const [filter, percent] of Object.entries(progress.progress_percent)) {
+    if (percent < lowestPercent) {
+      lowestPercent = percent
+      lowestFilter = filter
+    }
+  }
+
+  return lowestFilter
+}
+
+/**
+ * Calculate progress for a single project target.
+ * Uses all project images that match the target's exposure goal filters.
+ */
+function calculateTargetProgress(projectId: number, target: DbProjectTarget): ProjectProgress | null {
+  if (!target.exposure_goals) {
+    return null
+  }
+
+  const exposureGoals = JSON.parse(target.exposure_goals) as Record<string, number>
+  if (Object.keys(exposureGoals).length === 0) {
+    return null
+  }
+
+  // Get actual exposure from project images
+  const images = query<{ filter_name: string | null; exposure_time: number | null }>(
+    `SELECT i.filter_name, i.exposure_time
+     FROM project_images pi
+     JOIN images i ON pi.image_id = i.id
+     WHERE pi.project_id = ?`,
+    [projectId]
+  )
+
+  // Aggregate actual exposure by filter
+  const actualExposure: Record<string, number> = {}
+  let totalFrames = 0
+  let totalExposureSeconds = 0
+
+  for (const img of images) {
+    const filter = img.filter_name ?? 'Unknown'
+    const exposure = img.exposure_time ?? 0
+    // Only count filters that are in the exposure goals
+    if (filter in exposureGoals || Object.keys(exposureGoals).some(g => g.toLowerCase() === filter.toLowerCase())) {
+      actualExposure[filter] = (actualExposure[filter] ?? 0) + exposure
+      totalFrames++
+      totalExposureSeconds += exposure
+    }
+  }
+
+  // Calculate progress percentage per filter
+  const progressPercent: Record<string, number> = {}
+  let totalGoalSeconds = 0
+  let totalAchievedSeconds = 0
+
+  for (const [filter, goalSeconds] of Object.entries(exposureGoals)) {
+    const actual = actualExposure[filter] ?? 0
+    const percent = goalSeconds > 0 ? Math.min(100, (actual / goalSeconds) * 100) : 0
+    progressPercent[filter] = Math.round(percent * 10) / 10
+    totalGoalSeconds += goalSeconds
+    totalAchievedSeconds += Math.min(actual, goalSeconds)
+  }
+
+  const overallProgress = totalGoalSeconds > 0
+    ? Math.round((totalAchievedSeconds / totalGoalSeconds) * 1000) / 10
+    : 0
+
+  return {
+    exposure_goals: exposureGoals,
+    actual_exposure: actualExposure,
+    progress_percent: progressPercent,
+    overall_progress: overallProgress,
+    total_frames: totalFrames,
+    total_exposure_seconds: totalExposureSeconds,
   }
 }
 
@@ -466,11 +635,14 @@ export const offlineProjectsApi = {
           [p.id]
         ) ?? 0
 
+      // Calculate progress
+      const progress = calculateProjectProgress(p.id)
+
       return {
         ...p,
         target_count: targetCount,
         image_count: imageCount,
-        overall_progress: null, // Would need exposure goals calculation
+        overall_progress: progress?.overall_progress ?? null,
       }
     })
   },
@@ -493,6 +665,9 @@ export const offlineProjectsApi = {
         t.object_id,
       ])
 
+      // Calculate progress for this target
+      const targetProgress = calculateTargetProgress(id, t)
+
       return {
         id: t.id,
         project_id: t.project_id,
@@ -506,7 +681,7 @@ export const offlineProjectsApi = {
         exposure_goals: t.exposure_goals ? JSON.parse(t.exposure_goals) : null,
         notes: t.notes,
         created_at: t.created_at,
-        progress: null,
+        progress: targetProgress,
       }
     })
 
@@ -530,14 +705,17 @@ export const offlineProjectsApi = {
       added_manually: Boolean(i.added_manually),
     }))
 
+    // Calculate progress
+    const progress = calculateProjectProgress(id)
+
     return {
       ...project,
       target_count: targets.length,
       image_count: images.length,
-      overall_progress: null,
+      overall_progress: progress?.overall_progress ?? null,
       targets,
       images,
-      progress: null,
+      progress,
     }
   },
 
@@ -604,9 +782,15 @@ export const offlineProjectsApi = {
       const visibility = visibilityResults[object.id]
       if (!visibility || !visibility.is_visible_tonight) continue
 
-      // Calculate score (simplified - no progress, just visibility + priority)
+      // Calculate project progress
+      const progress = calculateProjectProgress(project.id)
+      const overallProgress = progress?.overall_progress ?? 0
+      const recommendedFilter = getRecommendedFilter(progress)
+
+      // Calculate score - includes progress (prioritize incomplete projects)
       const visScore = calculateVisibilityScore(visibility)
-      const score = visScore + (project.priority * 5) + 30 // Base score for urgency
+      const progressBonus = overallProgress < 100 ? (100 - overallProgress) * 0.5 : 0
+      const score = visScore + (project.priority * 5) + progressBonus + 30
 
       const fullVisibility: VisibilityInfo = {
         is_visible_tonight: visibility.is_visible_tonight,
@@ -626,8 +810,8 @@ export const offlineProjectsApi = {
         primary_target_name: object.primary_name,
         primary_target_id: object.id,
         visibility: fullVisibility,
-        overall_progress: 0, // Not calculated in offline mode
-        recommended_filter: null, // Would need progress calculation
+        overall_progress: overallProgress,
+        recommended_filter: recommendedFilter,
         score,
       })
     }

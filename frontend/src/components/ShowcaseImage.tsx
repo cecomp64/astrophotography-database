@@ -9,8 +9,9 @@ interface ShowcaseImageProps {
   objectName: string
   ra: number | null
   dec: number | null
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'responsive'
   className?: string
+  hideEmptyOnMobile?: boolean  // Hide placeholder/empty states on small viewports
 }
 
 export default function ShowcaseImage({
@@ -20,6 +21,7 @@ export default function ShowcaseImage({
   dec,
   size = 'md',
   className = '',
+  hideEmptyOnMobile = false,
 }: ShowcaseImageProps) {
   const queryClient = useQueryClient()
   const pwa = isPwaMode()
@@ -78,7 +80,11 @@ export default function ShowcaseImage({
     sm: 'w-16 h-16',
     md: 'w-32 h-32',
     lg: 'w-48 h-48',
+    responsive: 'w-full sm:w-48 aspect-square sm:h-48',
   }
+
+  // Classes to hide empty states on mobile
+  const emptyHideClass = hideEmptyOnMobile ? 'hidden sm:flex' : 'flex'
 
   const hasCoordinates = ra !== null && dec !== null
 
@@ -103,9 +109,9 @@ export default function ShowcaseImage({
       )
     }
 
-    // No cached image available
+    // No cached image available - hide on mobile if hideEmptyOnMobile
     return (
-      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg flex items-center justify-center ${className}`}>
+      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg ${emptyHideClass} items-center justify-center ${className}`}>
         <span className="text-gray-500 text-xs text-center px-2">Not synced</span>
       </div>
     )
@@ -121,7 +127,7 @@ export default function ShowcaseImage({
   // Show placeholder if no showcase and no coordinates for survey fallback
   if (!showcase && !hasCoordinates) {
     return (
-      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg flex items-center justify-center ${className}`}>
+      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg ${emptyHideClass} items-center justify-center ${className}`}>
         <span className="text-gray-500 text-xs text-center px-2">No image</span>
       </div>
     )
@@ -130,7 +136,7 @@ export default function ShowcaseImage({
   // If no showcase but has coordinates, offer to fetch from survey
   if (!showcase && hasCoordinates) {
     return (
-      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg flex flex-col items-center justify-center p-2 ${className}`}>
+      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg ${emptyHideClass} flex-col items-center justify-center p-2 ${className}`}>
         <button
           onClick={(e) => {
             e.preventDefault()
@@ -152,7 +158,7 @@ export default function ShowcaseImage({
   // Show image with error handling
   if (imageError) {
     return (
-      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg flex items-center justify-center ${className}`}>
+      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg ${emptyHideClass} items-center justify-center ${className}`}>
         <span className="text-gray-500 text-xs">Load failed</span>
       </div>
     )

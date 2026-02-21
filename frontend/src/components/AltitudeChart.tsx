@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   ComposedChart,
   Area,
@@ -91,10 +92,50 @@ interface ChartDataPoint extends AltitudeDataPoint {
   twilightFill: number // Fixed value for background bar height
 }
 
+// Calculate X-axis interval based on container width
+// Returns interval that shows appropriate number of labels for the width
+function getXAxisInterval(width: number): number {
+  // Data has ~145 points (every 10 min for 24 hours)
+  // interval=11 means every 12th point = ~12 labels
+  if (width < 300) return 35      // ~4 labels for very narrow
+  if (width < 400) return 23      // ~6 labels for narrow
+  if (width < 500) return 17      // ~8 labels for medium-narrow
+  if (width < 600) return 14      // ~10 labels for medium
+  return 11                        // ~12 labels for wide
+}
+
+// Format time label - compact for narrow views
+function formatTimeLabel(time: string, compact: boolean): string {
+  if (!compact) return time
+  // For compact mode, show just the hour (e.g., "14" instead of "14:00")
+  const [hour, minute] = time.split(':')
+  if (minute === '00') return hour
+  return time // Show full time for non-hour times
+}
+
 export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
   const pwa = isPwaMode()
   const objectsApiHook = useObjectsApi()
   const storedLocation = getStoredLocation()
+
+  // Track container width for responsive X-axis
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [containerWidth, setContainerWidth] = useState(600)
+
+  const handleResize = useCallback(() => {
+    if (containerRef.current) {
+      setContainerWidth(containerRef.current.offsetWidth)
+    }
+  }, [])
+
+  useEffect(() => {
+    handleResize()
+    const resizeObserver = new ResizeObserver(handleResize)
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current)
+    }
+    return () => resizeObserver.disconnect()
+  }, [handleResize])
 
   // Fetch object details to get RA/Dec for PWA mode calculations
   const { data: objectDetails } = useQuery({
@@ -285,7 +326,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
         </div>
       )}
 
-      <div className="h-64">
+      <div className="h-64" ref={containerRef}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
             <defs>
@@ -309,9 +350,10 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
             <XAxis
               dataKey="time"
               stroke="#9ca3af"
-              tick={{ fill: '#9ca3af', fontSize: 11 }}
+              tick={{ fill: '#9ca3af', fontSize: containerWidth < 400 ? 10 : 11 }}
               tickLine={{ stroke: '#6b7280' }}
-              interval={11}
+              interval={getXAxisInterval(containerWidth)}
+              tickFormatter={(time) => formatTimeLabel(time, containerWidth < 500)}
             />
             <YAxis
               yAxisId="main"

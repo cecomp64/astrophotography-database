@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useObjectsApi, useImagesApi } from '../pwa/hooks/useApi'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import ImageTable from '../components/ImageTable'
 import AltitudeChart from '../components/AltitudeChart'
 import ShowcaseImage from '../components/ShowcaseImage'
@@ -24,6 +25,7 @@ export default function ObjectDetailPage() {
   const imagesApi = useImagesApi()
   const { id } = useParams<{ id: string }>()
   const objectId = parseInt(id!, 10)
+  const pwa = isPwaMode()
 
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
@@ -149,28 +151,31 @@ export default function ObjectDetailPage() {
             objectName={object.primary_name}
             ra={object.ra}
             dec={object.dec}
-            size="lg"
+            size="responsive"
             className="mx-auto sm:mx-0"
+            hideEmptyOnMobile
           />
         </div>
 
-        {/* Collapsible Showcase Manager */}
-        <div className="border-t border-space-600 mt-6 pt-4">
-          <button
-            onClick={() => setShowcaseExpanded(!showcaseExpanded)}
-            className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-200 transition-colors"
-          >
-            <span className={`transform transition-transform ${showcaseExpanded ? 'rotate-90' : ''}`}>
-              ▶
-            </span>
-            <span>Manage Showcase Image</span>
-          </button>
-          {showcaseExpanded && (
-            <div className="mt-4">
-              <ShowcaseManager object={object} />
-            </div>
-          )}
-        </div>
+        {/* Collapsible Showcase Manager - hidden in PWA mode */}
+        {!pwa && (
+          <div className="border-t border-space-600 mt-6 pt-4">
+            <button
+              onClick={() => setShowcaseExpanded(!showcaseExpanded)}
+              className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              <span className={`transform transition-transform ${showcaseExpanded ? 'rotate-90' : ''}`}>
+                ▶
+              </span>
+              <span>Manage Showcase Image</span>
+            </button>
+            {showcaseExpanded && (
+              <div className="mt-4">
+                <ShowcaseManager object={object} />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {object.ra !== null && object.dec !== null && (
