@@ -9,6 +9,7 @@ import {
 } from '../api/client'
 import { formatRA, formatDec } from '../utils/coordinates'
 import MiniAltitudeChart from '../components/MiniAltitudeChart'
+import CreateObjectModal from '../components/CreateObjectModal'
 
 type SortField = 'primary_name' | 'magnitude' | 'size_major' | 'constellation' | 'object_type' | 'ra' | 'dec'
 type WellPlacedSortField = 'primary_name' | 'magnitude' | 'constellation' | 'object_type' | 'max_altitude' | 'transit_time' | 'hours_in_darkness'
@@ -51,6 +52,7 @@ export default function CataloguePage() {
   const [visibleTonight, setVisibleTonight] = useState(false)
   const [minAltitude, setMinAltitude] = useState(30)
   const [page, setPage] = useState(0)
+  const [showCreateModal, setShowCreateModal] = useState(false)
   const pageSize = 50
 
   // Sorting state
@@ -325,12 +327,25 @@ export default function CataloguePage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
         <h1 className="text-2xl font-bold">Catalogue Browser</h1>
-        {total !== undefined && (
-          <span className="text-gray-400 text-sm sm:text-base">
-            {total.toLocaleString()} objects
-          </span>
-        )}
+        <div className="flex items-center gap-4">
+          {total !== undefined && (
+            <span className="text-gray-400 text-sm sm:text-base">
+              {total.toLocaleString()} objects
+            </span>
+          )}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn btn-primary"
+          >
+            + Create Object
+          </button>
+        </div>
       </div>
+
+      <CreateObjectModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+      />
 
       <div className="card">
         <form onSubmit={handleSearch} className="flex flex-wrap gap-4">

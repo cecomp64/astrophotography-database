@@ -2,6 +2,19 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "Restart Local Server",
+			"type": "shell",
+			"problemMatcher": [],
+			"dependsOn": [
+				"Kill Frontend Server",
+				"Start Backend",
+				"Start Frontend"
+			],
+			"dependsOrder": "sequence",
+			"group": "build",
+			"detail": "Kills any lingering processes, and launches backend plus frontend"
+		},
+		{
 			"label": "Kill Frontend Server",
 			"type": "shell",
 			"command": "lsof -ti :8080 | xargs kill -9",

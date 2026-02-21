@@ -9,6 +9,7 @@ import {
 } from '../api/client'
 import ObjectCard from '../components/ObjectCard'
 import SearchBar from '../components/SearchBar'
+import CreateObjectModal from '../components/CreateObjectModal'
 
 const PAGE_SIZE = 20
 
@@ -23,6 +24,7 @@ export default function ObjectsPage() {
   )
   const [minAltitude, setMinAltitude] = useState(30)
   const [page, setPage] = useState(0)
+  const [showCreateModal, setShowCreateModal] = useState(false)
 
   // Update URL when visibleTonight changes
   useEffect(() => {
@@ -135,10 +137,23 @@ export default function ObjectsPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Astronomical Objects</h1>
-        {isFetching && !isLoading && (
-          <span className="text-sm text-gray-400">Updating...</span>
-        )}
+        <div className="flex items-center gap-4">
+          {isFetching && !isLoading && (
+            <span className="text-sm text-gray-400">Updating...</span>
+          )}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn btn-primary"
+          >
+            + Create Object
+          </button>
+        </div>
       </div>
+
+      <CreateObjectModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+      />
 
       <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4">
         <div className="w-full sm:w-64">
