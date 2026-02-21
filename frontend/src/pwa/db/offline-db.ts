@@ -78,6 +78,49 @@ export function isDatabaseLoaded(): boolean {
 }
 
 /**
+ * Validate the database has expected tables and data
+ * Returns row counts for debugging
+ */
+export function validateDatabase(): { isValid: boolean; tables: Record<string, number>; error?: string } {
+  if (!db) {
+    return { isValid: false, tables: {}, error: 'Database not loaded' }
+  }
+
+  try {
+    const tables: Record<string, number> = {}
+    const expectedTables = ['objects', 'object_aliases', 'images', 'image_objects']
+
+    for (const table of expectedTables) {
+      try {
+        const stmt = db.prepare(`SELECT COUNT(*) as count FROM ${table}`)
+        if (stmt.step()) {
+          const row = stmt.getAsObject() as { count: number }
+          tables[table] = row.count
+        }
+        stmt.free()
+      } catch {
+        tables[table] = -1 // Table doesn't exist
+      }
+    }
+
+    const hasData = Object.values(tables).some(count => count > 0)
+    const allTablesExist = Object.values(tables).every(count => count >= 0)
+
+    return {
+      isValid: allTablesExist && hasData,
+      tables,
+      error: !allTablesExist ? 'Missing tables' : (!hasData ? 'Database is empty' : undefined)
+    }
+  } catch (err) {
+    return {
+      isValid: false,
+      tables: {},
+      error: err instanceof Error ? err.message : 'Validation failed'
+    }
+  }
+}
+
+/**
  * Close the database
  */
 export function closeDatabase(): void {

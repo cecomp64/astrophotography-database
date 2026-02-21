@@ -11,7 +11,7 @@ import {
   setServerUrl as persistServerUrl,
   SyncMetadata,
 } from '../db/persistence'
-import { loadDatabaseFromBuffer } from '../db/offline-db'
+import { loadDatabaseFromBuffer, validateDatabase } from '../db/offline-db'
 import { useOfflineDb } from './OfflineDbContext'
 
 export type SyncStatus = 'idle' | 'checking' | 'downloading' | 'loading' | 'success' | 'error' | 'cert_error'
@@ -195,8 +195,22 @@ export function SyncProvider({ children }: SyncProviderProps) {
       const decompressedResponse = new Response(decompressedStream)
       const dbBuffer = await decompressedResponse.arrayBuffer()
 
+      console.log('[SyncContext] Decompressed database size:', dbBuffer.byteLength, 'bytes')
+
+      if (dbBuffer.byteLength === 0) {
+        throw new Error('Decompressed database is empty - decompression may have failed')
+      }
+
       // Load into sql.js
       await loadDatabaseFromBuffer(dbBuffer)
+
+      // Validate the database has data
+      const validation = validateDatabase()
+      console.log('[SyncContext] Database validation:', validation)
+
+      if (!validation.isValid) {
+        throw new Error(`Database validation failed: ${validation.error}. Tables: ${JSON.stringify(validation.tables)}`)
+      }
 
       // Save to IndexedDB
       const syncMetadata: SyncMetadata = {
@@ -214,6 +228,7 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
       setStatus('success')
       setProgress(100)
+      console.log('[SyncContext] Sync complete. Row counts:', validation.tables)
       return true
     } catch (err) {
       console.error('[SyncContext] Sync error:', err)
