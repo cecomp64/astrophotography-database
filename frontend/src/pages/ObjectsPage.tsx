@@ -144,12 +144,14 @@ export default function ObjectsPage() {
           {isFetching && !isLoading && (
             <span className="text-sm text-gray-400">Updating...</span>
           )}
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="btn btn-primary"
-          >
-            + Create Object
-          </button>
+          {!pwa && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="btn btn-primary"
+            >
+              + Create Object
+            </button>
+          )}
         </div>
       </div>
 
@@ -200,17 +202,19 @@ export default function ObjectsPage() {
             Primary targets only
           </label>
 
-          <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={visibleTonight}
-              onChange={(e) => setVisibleTonight(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-800"
-            />
-            Visible tonight
-          </label>
+          {!pwa && (
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={visibleTonight}
+                onChange={(e) => setVisibleTonight(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-800"
+              />
+              Visible tonight
+            </label>
+          )}
 
-          {visibleTonight && (
+          {visibleTonight && !pwa && (
             <div className="flex items-center gap-2">
               <label className="text-sm text-gray-400 whitespace-nowrap">
                 Min altitude:

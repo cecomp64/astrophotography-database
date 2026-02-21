@@ -81,33 +81,57 @@ export const offlineObjectsApi = {
     limit?: number
     object_type?: string
     constellation?: string
+    primary_only?: boolean
   }): Promise<AstroObject[]> => {
     const skip = params?.skip ?? 0
     const limit = params?.limit ?? 100
+    const primaryOnly = params?.primary_only ?? true
 
-    let sql = 'SELECT * FROM objects WHERE 1=1'
+    // Only return objects that have images associated with them
+    // If primary_only is true, only include objects that are the primary target of at least one image
+    let sql: string
     const sqlParams: unknown[] = []
 
+    if (primaryOnly) {
+      // Objects that are the primary target of at least one image
+      sql = `
+        SELECT DISTINCT o.*, COUNT(DISTINCT i.id) as image_count
+        FROM objects o
+        INNER JOIN images i ON i.object_id = o.id
+        WHERE 1=1
+      `
+    } else {
+      // Objects that appear in any image (primary or in_fov)
+      sql = `
+        SELECT DISTINCT o.*, COUNT(DISTINCT io.image_id) as image_count
+        FROM objects o
+        INNER JOIN image_objects io ON io.object_id = o.id
+        WHERE 1=1
+      `
+    }
+
     if (params?.object_type) {
-      sql += ' AND object_type = ?'
+      sql += ' AND o.object_type = ?'
       sqlParams.push(params.object_type)
     }
     if (params?.constellation) {
-      sql += ' AND constellation = ?'
+      sql += ' AND o.constellation = ?'
       sqlParams.push(params.constellation)
     }
 
-    sql += ' ORDER BY primary_name LIMIT ? OFFSET ?'
+    sql += ' GROUP BY o.id ORDER BY o.primary_name LIMIT ? OFFSET ?'
     sqlParams.push(limit, skip)
 
-    const objects = query<DbObject>(sql, sqlParams)
+    const objects = query<DbObject & { image_count: number }>(sql, sqlParams)
 
     return objects.map((obj) => {
       const aliases = query<DbObjectAlias>(
         'SELECT * FROM object_aliases WHERE object_id = ?',
         [obj.id]
       )
-      return mapObject(obj, aliases)
+      const mapped = mapObject(obj, aliases)
+      mapped.image_count = obj.image_count
+      return mapped
     })
   },
 
