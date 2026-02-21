@@ -42,6 +42,10 @@ jobs:
         working-directory: frontend
         run: npm run build:pwa
 
+      - name: Rename index-pwa.html to index.html for GitHub Pages
+        working-directory: frontend/dist-pwa
+        run: mv index-pwa.html index.html
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
