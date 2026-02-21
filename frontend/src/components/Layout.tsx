@@ -1,5 +1,5 @@
 import { ReactNode, useState, useMemo } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import appIcon from '../../assets/Database App Icon Light300.png'
 import { isPwaMode } from '../pwa/hooks/usePwaMode'
 
@@ -27,8 +27,17 @@ const allNavItems: NavItem[] = [
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
+  const navigate = useNavigate()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const pwa = isPwaMode()
+
+  const handleBack = () => {
+    navigate(-1)
+  }
+
+  const handleReload = () => {
+    window.location.reload()
+  }
 
   // Filter nav items based on mode
   const navItems = useMemo(() => {
@@ -47,9 +56,30 @@ export default function Layout({ children }: LayoutProps) {
             <div className="flex items-center">
               <Link to="/" className="flex items-center">
                 <img src={appIcon} alt="AstroDB" className="h-8 w-8 mr-2" />
-                <span className="text-xl font-bold text-blue-400">Astro</span>
-                <span className="text-xl font-bold text-gray-100">DB</span>
+                <span className="text-xl font-bold text-blue-400 hidden sm:inline">Astro</span>
+                <span className="text-xl font-bold text-gray-100 hidden sm:inline">DB</span>
               </Link>
+              {/* Back and Reload buttons */}
+              <div className="flex items-center ml-4 gap-1">
+                <button
+                  onClick={handleBack}
+                  className="p-2 rounded-md text-gray-400 hover:text-white hover:bg-space-700 transition-colors"
+                  title="Go back"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={handleReload}
+                  className="p-2 rounded-md text-gray-400 hover:text-white hover:bg-space-700 transition-colors"
+                  title="Reload page"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              </div>
               {/* Desktop navigation */}
               <div className="hidden md:flex ml-10 items-baseline space-x-4">
                 {navItems.map((item) => (

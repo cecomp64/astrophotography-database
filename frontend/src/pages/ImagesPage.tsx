@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import { ImageGroup } from '../api/client'
 import { useImagesApi, useObjectsApi } from '../pwa/hooks/useApi'
 import ImageTable from '../components/ImageTable'
@@ -20,8 +19,9 @@ export default function ImagesPage() {
   const [camera, setCamera] = useState('')
   const [objectId, setObjectId] = useState<number | null>(null)
   const [limit, setLimit] = useState(50)
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
 
-  const parentRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
 
   const { data: images, isLoading: isLoadingImages } = useQuery({
     queryKey: ['images', filterName, telescope, limit],
@@ -74,35 +74,27 @@ export default function ImagesPage() {
   const allGroups: ImageGroup[] = groupedData?.pages.flatMap(page => page.groups) ?? []
   const totalGroups = groupedData?.pages[0]?.total ?? 0
 
-  // Virtual list setup
-  const rowVirtualizer = useVirtualizer({
-    count: hasNextPage ? allGroups.length + 1 : allGroups.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 180, // Estimated height of SessionCard
-    overscan: 5,
-  })
-
-  // Load more when scrolling near the end
-  const virtualItems = rowVirtualizer.getVirtualItems()
-  const lastItem = virtualItems[virtualItems.length - 1]
-
+  // Intersection Observer for infinite scroll
   useEffect(() => {
-    if (!lastItem) return
+    if (!loadMoreRef.current) return
 
-    if (
-      lastItem.index >= allGroups.length - 1 &&
-      hasNextPage &&
-      !isFetchingNextPage
-    ) {
-      fetchNextPage()
-    }
-  }, [lastItem, hasNextPage, isFetchingNextPage, fetchNextPage, allGroups.length])
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    observer.observe(loadMoreRef.current)
+
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   const resetFilters = useCallback(() => {
-    // Reset scroll position when filters change
-    if (parentRef.current) {
-      parentRef.current.scrollTop = 0
-    }
+    // Scroll to top when filters change
+    window.scrollTo(0, 0)
   }, [])
 
   const isLoading = viewMode === 'grouped' ? isLoadingGrouped : isLoadingImages
@@ -118,114 +110,225 @@ export default function ImagesPage() {
         )}
       </div>
 
-      <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 sm:items-center">
-        <div className="flex rounded-lg overflow-hidden border border-space-600">
+      <div className="flex flex-col gap-3">
+        {/* View mode toggle - always visible */}
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-4 sm:items-center">
+          <div className="flex rounded-lg overflow-hidden border border-space-600 w-fit">
+            <button
+              onClick={() => setViewMode('grouped')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                viewMode === 'grouped'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-space-800 text-gray-300 hover:bg-space-700'
+              }`}
+            >
+              Sessions
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                viewMode === 'list'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-space-800 text-gray-300 hover:bg-space-700'
+              }`}
+            >
+              List
+            </button>
+          </div>
+
+          {/* Filters toggle for mobile */}
           <button
-            onClick={() => setViewMode('grouped')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              viewMode === 'grouped'
-                ? 'bg-blue-600 text-white'
-                : 'bg-space-800 text-gray-300 hover:bg-space-700'
-            }`}
+            onClick={() => setFiltersExpanded(!filtersExpanded)}
+            className="sm:hidden flex items-center gap-2 text-sm text-gray-400 hover:text-gray-200 transition-colors"
           >
-            Sessions
+            <span className={`transform transition-transform ${filtersExpanded ? 'rotate-90' : ''}`}>
+              ▶
+            </span>
+            <span>Filters</span>
+            {(telescope || camera || objectId || filterName) && (
+              <span className="bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded">Active</span>
+            )}
           </button>
-          <button
-            onClick={() => setViewMode('list')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              viewMode === 'list'
-                ? 'bg-blue-600 text-white'
-                : 'bg-space-800 text-gray-300 hover:bg-space-700'
-            }`}
-          >
-            List
-          </button>
+
+          {/* Desktop filters - always visible on sm+ */}
+          <div className="hidden sm:flex sm:flex-wrap gap-3 sm:gap-4 sm:items-center">
+            <select
+              value={telescope}
+              onChange={(e) => {
+                setTelescope(e.target.value)
+                resetFilters()
+              }}
+              className="input"
+            >
+              <option value="">All Telescopes</option>
+              {stats &&
+                Object.keys(stats.by_telescope).map((scope) => (
+                  <option key={scope} value={scope}>
+                    {scope}
+                  </option>
+                ))}
+            </select>
+
+            {viewMode === 'grouped' && (
+              <>
+                <select
+                  value={camera}
+                  onChange={(e) => {
+                    setCamera(e.target.value)
+                    resetFilters()
+                  }}
+                  className="input"
+                >
+                  <option value="">All Cameras</option>
+                  {stats &&
+                    Object.keys(stats.by_camera || {}).map((cam) => (
+                      <option key={cam} value={cam}>
+                        {cam}
+                      </option>
+                    ))}
+                </select>
+
+                <select
+                  value={objectId?.toString() || ''}
+                  onChange={(e) => {
+                    setObjectId(e.target.value ? parseInt(e.target.value) : null)
+                    resetFilters()
+                  }}
+                  className="input"
+                >
+                  <option value="">All Objects</option>
+                  {objectsWithImages &&
+                    [...objectsWithImages]
+                      .sort((a, b) => a.primary_name.localeCompare(b.primary_name))
+                      .map((obj) => (
+                        <option key={obj.id} value={obj.id}>
+                          {obj.primary_name}
+                        </option>
+                      ))}
+                </select>
+              </>
+            )}
+
+            {viewMode === 'list' && (
+              <>
+                <select
+                  value={filterName}
+                  onChange={(e) => setFilterName(e.target.value)}
+                  className="input"
+                >
+                  <option value="">All Filters</option>
+                  {stats &&
+                    Object.keys(stats.by_filter).map((filter) => (
+                      <option key={filter} value={filter}>
+                        {filter} ({stats.by_filter[filter]})
+                      </option>
+                    ))}
+                </select>
+
+                <select
+                  value={limit}
+                  onChange={(e) => setLimit(parseInt(e.target.value))}
+                  className="input"
+                >
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                  <option value={200}>200 per page</option>
+                </select>
+              </>
+            )}
+          </div>
         </div>
 
-        <select
-          value={telescope}
-          onChange={(e) => {
-            setTelescope(e.target.value)
-            resetFilters()
-          }}
-          className="input"
-        >
-          <option value="">All Telescopes</option>
-          {stats &&
-            Object.keys(stats.by_telescope).map((scope) => (
-              <option key={scope} value={scope}>
-                {scope}
-              </option>
-            ))}
-        </select>
-
-        {viewMode === 'grouped' && (
-          <>
+        {/* Mobile filters - collapsible */}
+        {filtersExpanded && (
+          <div className="sm:hidden flex flex-col gap-3 pl-4 border-l-2 border-space-600">
             <select
-              value={camera}
+              value={telescope}
               onChange={(e) => {
-                setCamera(e.target.value)
+                setTelescope(e.target.value)
                 resetFilters()
               }}
               className="input"
             >
-              <option value="">All Cameras</option>
+              <option value="">All Telescopes</option>
               {stats &&
-                Object.keys(stats.by_camera || {}).map((cam) => (
-                  <option key={cam} value={cam}>
-                    {cam}
+                Object.keys(stats.by_telescope).map((scope) => (
+                  <option key={scope} value={scope}>
+                    {scope}
                   </option>
                 ))}
             </select>
 
-            <select
-              value={objectId?.toString() || ''}
-              onChange={(e) => {
-                setObjectId(e.target.value ? parseInt(e.target.value) : null)
-                resetFilters()
-              }}
-              className="input"
-            >
-              <option value="">All Objects</option>
-              {objectsWithImages &&
-                [...objectsWithImages]
-                  .sort((a, b) => a.primary_name.localeCompare(b.primary_name))
-                  .map((obj) => (
-                    <option key={obj.id} value={obj.id}>
-                      {obj.primary_name}
-                    </option>
-                  ))}
-            </select>
-          </>
-        )}
+            {viewMode === 'grouped' && (
+              <>
+                <select
+                  value={camera}
+                  onChange={(e) => {
+                    setCamera(e.target.value)
+                    resetFilters()
+                  }}
+                  className="input"
+                >
+                  <option value="">All Cameras</option>
+                  {stats &&
+                    Object.keys(stats.by_camera || {}).map((cam) => (
+                      <option key={cam} value={cam}>
+                        {cam}
+                      </option>
+                    ))}
+                </select>
 
-        {viewMode === 'list' && (
-          <>
-            <select
-              value={filterName}
-              onChange={(e) => setFilterName(e.target.value)}
-              className="input"
-            >
-              <option value="">All Filters</option>
-              {stats &&
-                Object.keys(stats.by_filter).map((filter) => (
-                  <option key={filter} value={filter}>
-                    {filter} ({stats.by_filter[filter]})
-                  </option>
-                ))}
-            </select>
+                <select
+                  value={objectId?.toString() || ''}
+                  onChange={(e) => {
+                    setObjectId(e.target.value ? parseInt(e.target.value) : null)
+                    resetFilters()
+                  }}
+                  className="input"
+                >
+                  <option value="">All Objects</option>
+                  {objectsWithImages &&
+                    [...objectsWithImages]
+                      .sort((a, b) => a.primary_name.localeCompare(b.primary_name))
+                      .map((obj) => (
+                        <option key={obj.id} value={obj.id}>
+                          {obj.primary_name}
+                        </option>
+                      ))}
+                </select>
+              </>
+            )}
 
-            <select
-              value={limit}
-              onChange={(e) => setLimit(parseInt(e.target.value))}
-              className="input"
-            >
-              <option value={25}>25 per page</option>
-              <option value={50}>50 per page</option>
-              <option value={100}>100 per page</option>
-              <option value={200}>200 per page</option>
-            </select>
-          </>
+            {viewMode === 'list' && (
+              <>
+                <select
+                  value={filterName}
+                  onChange={(e) => setFilterName(e.target.value)}
+                  className="input"
+                >
+                  <option value="">All Filters</option>
+                  {stats &&
+                    Object.keys(stats.by_filter).map((filter) => (
+                      <option key={filter} value={filter}>
+                        {filter} ({stats.by_filter[filter]})
+                      </option>
+                    ))}
+                </select>
+
+                <select
+                  value={limit}
+                  onChange={(e) => setLimit(parseInt(e.target.value))}
+                  className="input"
+                >
+                  <option value={25}>25 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                  <option value={200}>200 per page</option>
+                </select>
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -244,49 +347,17 @@ export default function ImagesPage() {
                 )}
               </div>
 
-              <div
-                ref={parentRef}
-                className="overflow-auto"
-                style={{ height: 'calc(100vh - 220px)' }}
-              >
-                <div
-                  style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: '100%',
-                    position: 'relative',
-                  }}
-                >
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const isLoaderRow = virtualRow.index >= allGroups.length
-                    const session = allGroups[virtualRow.index]
+              <div className="space-y-4">
+                {allGroups.map((session) => (
+                  <SessionCard
+                    key={`${session.date}-${session.target_name}-${session.telescope}`}
+                    session={session}
+                  />
+                ))}
 
-                    return (
-                      <div
-                        key={virtualRow.key}
-                        data-index={virtualRow.index}
-                        ref={rowVirtualizer.measureElement}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                        className="pb-4"
-                      >
-                        {isLoaderRow ? (
-                          <div className="text-center py-4 text-gray-400">
-                            {hasNextPage ? 'Loading more...' : 'End of list'}
-                          </div>
-                        ) : (
-                          <SessionCard
-                            key={`${session.date}-${session.target_name}-${session.telescope}`}
-                            session={session}
-                          />
-                        )}
-                      </div>
-                    )
-                  })}
+                {/* Load more trigger */}
+                <div ref={loadMoreRef} className="text-center py-4 text-gray-400">
+                  {hasNextPage ? (isFetchingNextPage ? 'Loading more...' : '') : 'End of list'}
                 </div>
               </div>
             </>

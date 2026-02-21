@@ -80,71 +80,58 @@ export default function ObjectDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link to="/objects" className="text-gray-400 hover:text-gray-200">
-          &larr; Back
-        </Link>
-      </div>
-
       <div className="card">
-        <div className="flex gap-6">
-          <ShowcaseImage
-            objectId={object.id}
-            objectName={object.primary_name}
-            ra={object.ra}
-            dec={object.dec}
-            size="lg"
-            className="flex-shrink-0"
-          />
-          <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-bold mb-1">{object.primary_name}</h1>
+        <div className="space-y-4">
+          {/* Title and stats */}
+          <div className="min-w-0 overflow-hidden">
+            <h1 className="text-2xl sm:text-3xl font-bold mb-1 break-words">{object.primary_name}</h1>
             {(object.object_type || formatSize(object.size_major, object.size_minor)) && (
-              <p className="text-gray-400 mb-4">
+              <p className="text-gray-400 mb-4 break-words">
                 {[object.object_type, formatSize(object.size_major, object.size_minor)].filter(Boolean).join(' • ')}
               </p>
             )}
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
               {object.object_type && (
-                <div>
+                <div className="min-w-0">
                   <div className="text-gray-400 text-xs">Type</div>
-                  <div>{object.object_type}</div>
+                  <div className="truncate">{object.object_type}</div>
                 </div>
               )}
               {object.constellation && (
-                <div>
+                <div className="min-w-0">
                   <div className="text-gray-400 text-xs">Constellation</div>
-                  <div>{object.constellation}</div>
+                  <div className="truncate">{object.constellation}</div>
                 </div>
               )}
               {object.magnitude !== null && (
-                <div>
+                <div className="min-w-0">
                   <div className="text-gray-400 text-xs">Magnitude</div>
                   <div>{object.magnitude.toFixed(1)}</div>
                 </div>
               )}
               {object.ra !== null && (
-                <div>
+                <div className="min-w-0">
                   <div className="text-gray-400 text-xs">RA</div>
-                  <div className="font-mono">{formatRA(object.ra)}</div>
+                  <div className="font-mono text-xs sm:text-sm truncate">{formatRA(object.ra)}</div>
                 </div>
               )}
               {object.dec !== null && (
-                <div>
+                <div className="min-w-0">
                   <div className="text-gray-400 text-xs">Dec</div>
-                  <div className="font-mono">{formatDec(object.dec)}</div>
+                  <div className="font-mono text-xs sm:text-sm truncate">{formatDec(object.dec)}</div>
                 </div>
               )}
-              <div>
+              <div className="min-w-0">
                 <div className="text-gray-400 text-xs">Images</div>
                 <div>{totalImages}</div>
               </div>
             </div>
 
             {object.aliases && object.aliases.length > 0 && (
-              <div className="mt-4">
+              <div className="mt-4 overflow-hidden">
                 <div className="flex flex-wrap gap-1">
                   {object.aliases.slice(0, 5).map((alias) => (
-                    <span key={alias.id} className="badge badge-blue text-xs">
+                    <span key={alias.id} className="badge badge-blue text-xs truncate max-w-[120px] sm:max-w-none">
                       {alias.alias_name}
                     </span>
                   ))}
@@ -155,6 +142,16 @@ export default function ObjectDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Showcase image */}
+          <ShowcaseImage
+            objectId={object.id}
+            objectName={object.primary_name}
+            ra={object.ra}
+            dec={object.dec}
+            size="lg"
+            className="mx-auto sm:mx-0"
+          />
         </div>
 
         {/* Collapsible Showcase Manager */}
@@ -177,9 +174,11 @@ export default function ObjectDetailPage() {
       </div>
 
       {object.ra !== null && object.dec !== null && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-4">Altitude Tonight</h2>
-          <AltitudeChart objectId={objectId} />
+        <div className="card px-2 sm:px-4">
+          <h2 className="text-xl font-semibold mb-4 px-2 sm:px-0">Altitude Tonight</h2>
+          <div className="-mx-2 sm:mx-0">
+            <AltitudeChart objectId={objectId} />
+          </div>
         </div>
       )}
 

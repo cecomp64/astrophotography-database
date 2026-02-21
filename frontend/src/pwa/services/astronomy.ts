@@ -345,6 +345,261 @@ export function calculateAltitudeData(
 /**
  * Calculate mini altitude data (just altitude values for sparkline)
  */
+export interface VisibilityInfo {
+  is_visible_tonight: boolean
+  max_altitude: number | null
+  transit_time: string | null
+  hours_in_darkness: number | null
+  current_altitude: number | null
+}
+
+export interface BatchVisibilityResult {
+  [objectId: number]: VisibilityInfo
+}
+
+interface DarknessWindow {
+  start: Date | null
+  end: Date | null
+  startHoursFromMidnight: number | null
+  endHoursFromMidnight: number | null
+}
+
+/**
+ * Calculate darkness window (astronomical twilight) for tonight.
+ * Returns start/end times and hours relative to midnight.
+ */
+function calculateDarknessWindow(
+  location: ObserverLocation,
+  targetDate?: Date
+): DarknessWindow {
+  const observer = new Observer(location.latitude, location.longitude, 0)
+  const baseDate = targetDate || new Date()
+
+  // Start from noon to find tonight's darkness
+  const noon = new Date(baseDate)
+  noon.setHours(12, 0, 0, 0)
+
+  // Find astronomical dusk (sun at -18°)
+  let astroDusk: Date | null = null
+  let astroDawn: Date | null = null
+
+  try {
+    const duskResult = SearchAltitude(Body.Sun, observer, -1, noon, 12, -18)
+    astroDusk = duskResult ? duskResult.date : null
+
+    if (astroDusk) {
+      const dawnResult = SearchAltitude(Body.Sun, observer, 1, astroDusk, 18, -18)
+      astroDawn = dawnResult ? dawnResult.date : null
+    }
+  } catch {
+    return { start: null, end: null, startHoursFromMidnight: null, endHoursFromMidnight: null }
+  }
+
+  if (!astroDusk || !astroDawn) {
+    return { start: null, end: null, startHoursFromMidnight: null, endHoursFromMidnight: null }
+  }
+
+  // Calculate hours relative to local midnight
+  const midnight = new Date(baseDate)
+  midnight.setHours(24, 0, 0, 0) // Next midnight
+
+  const startHours = (astroDusk.getTime() - midnight.getTime()) / (1000 * 60 * 60)
+  const endHours = (astroDawn.getTime() - midnight.getTime()) / (1000 * 60 * 60)
+
+  return {
+    start: astroDusk,
+    end: astroDawn,
+    startHoursFromMidnight: startHours,
+    endHoursFromMidnight: endHours,
+  }
+}
+
+/**
+ * Calculate Local Sidereal Time at midnight for a given location
+ */
+function getLstAtMidnight(location: ObserverLocation, targetDate?: Date): number {
+  const baseDate = targetDate || new Date()
+  const midnight = new Date(baseDate)
+  midnight.setHours(24, 0, 0, 0) // Next midnight
+
+  const gst = SiderealTime(midnight)
+  const lst = (gst + location.longitude / 15 + 24) % 24
+  return lst
+}
+
+/**
+ * Calculate visibility metrics for a single object using analytical formulas.
+ * This is much faster than computing full altitude curves.
+ */
+function calculateObjectVisibility(
+  raDegrees: number,
+  decDegrees: number,
+  location: ObserverLocation,
+  darkness: DarknessWindow,
+  lstMidnight: number,
+  minAltitude: number = 30
+): VisibilityInfo {
+  const latRad = location.latitude * Math.PI / 180
+  const decRad = decDegrees * Math.PI / 180
+  const raHours = raDegrees / 15
+
+  // Calculate theoretical max altitude: 90 - |lat - dec|
+  const maxAltitude = 90 - Math.abs(location.latitude - decDegrees)
+
+  // If max altitude is below minimum, object can never be well-placed
+  if (maxAltitude < minAltitude) {
+    return {
+      is_visible_tonight: false,
+      max_altitude: maxAltitude,
+      transit_time: null,
+      hours_in_darkness: 0,
+      current_altitude: null,
+    }
+  }
+
+  // Calculate transit time (when RA = LST)
+  // Transit hours from midnight = (RA - LST_midnight) mod 24, adjusted to [-12, 12]
+  let transitHours = (raHours - lstMidnight) % 24
+  if (transitHours > 12) transitHours -= 24
+  if (transitHours < -12) transitHours += 24
+
+  // Convert transit hours to time string
+  const midnight = new Date()
+  midnight.setHours(24, 0, 0, 0)
+  const transitDate = new Date(midnight.getTime() + transitHours * 60 * 60 * 1000)
+  const transitTime = transitDate.toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+
+  // Calculate hour angle range where object is above minAltitude
+  // sin(alt) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(HA)
+  // Solving: cos(HA) = (sin(minAlt) - sin(lat)*sin(dec)) / (cos(lat)*cos(dec))
+  const sinMinAlt = Math.sin(minAltitude * Math.PI / 180)
+  const sinLat = Math.sin(latRad)
+  const cosLat = Math.cos(latRad)
+  const sinDec = Math.sin(decRad)
+  const cosDec = Math.cos(decRad)
+
+  const cosHaLimit = (sinMinAlt - sinLat * sinDec) / (cosLat * cosDec + 1e-10)
+
+  let hoursInDarkness = 0
+
+  if (cosHaLimit <= -1) {
+    // Circumpolar above min altitude - visible all night during darkness
+    if (darkness.startHoursFromMidnight !== null && darkness.endHoursFromMidnight !== null) {
+      hoursInDarkness = darkness.endHoursFromMidnight - darkness.startHoursFromMidnight
+    }
+  } else if (cosHaLimit >= 1) {
+    // Never above min altitude
+    hoursInDarkness = 0
+  } else {
+    // Calculate hour angle limit in hours
+    const haLimitHours = Math.acos(cosHaLimit) * 180 / Math.PI / 15
+
+    // Object is above min altitude from (transit - haLimit) to (transit + haLimit)
+    const riseHour = transitHours - haLimitHours
+    const setHour = transitHours + haLimitHours
+
+    // Calculate overlap with darkness window
+    if (darkness.startHoursFromMidnight !== null && darkness.endHoursFromMidnight !== null) {
+      const overlapStart = Math.max(riseHour, darkness.startHoursFromMidnight)
+      const overlapEnd = Math.min(setHour, darkness.endHoursFromMidnight)
+
+      if (overlapEnd > overlapStart) {
+        hoursInDarkness = overlapEnd - overlapStart
+      }
+    }
+  }
+
+  // Calculate current altitude
+  const now = new Date()
+  const { altitude: currentAltitude } = calculateAltAz(
+    raHours,
+    decDegrees,
+    location.latitude,
+    location.longitude,
+    now
+  )
+
+  // Object is visible if it has at least 1 hour above min altitude during darkness
+  const isVisible = hoursInDarkness >= 1.0
+
+  return {
+    is_visible_tonight: isVisible,
+    max_altitude: Math.round(maxAltitude * 10) / 10,
+    transit_time: transitTime,
+    hours_in_darkness: Math.round(hoursInDarkness * 10) / 10,
+    current_altitude: Math.round(currentAltitude * 10) / 10,
+  }
+}
+
+/**
+ * Calculate visibility for multiple objects efficiently.
+ * Computes twilight once and uses analytical formulas for each object.
+ */
+export function calculateBatchVisibility(
+  objects: Array<{ id: number; ra: number | null; dec: number | null }>,
+  location: ObserverLocation,
+  minAltitude: number = 30
+): BatchVisibilityResult {
+  const results: BatchVisibilityResult = {}
+
+  // Calculate darkness window once for all objects
+  const darkness = calculateDarknessWindow(location)
+  const lstMidnight = getLstAtMidnight(location)
+
+  for (const obj of objects) {
+    if (obj.ra === null || obj.dec === null) {
+      results[obj.id] = {
+        is_visible_tonight: false,
+        max_altitude: null,
+        transit_time: null,
+        hours_in_darkness: null,
+        current_altitude: null,
+      }
+      continue
+    }
+
+    results[obj.id] = calculateObjectVisibility(
+      obj.ra,
+      obj.dec,
+      location,
+      darkness,
+      lstMidnight,
+      minAltitude
+    )
+  }
+
+  return results
+}
+
+/**
+ * Calculate a visibility score for ranking objects.
+ * Higher score = better candidate for imaging tonight.
+ */
+export function calculateVisibilityScore(visibility: VisibilityInfo): number {
+  if (!visibility.is_visible_tonight) return 0
+
+  let score = 0
+
+  // Higher max altitude = better
+  if (visibility.max_altitude !== null) {
+    score += visibility.max_altitude * 0.5
+  }
+
+  // More hours during darkness = better
+  if (visibility.hours_in_darkness !== null) {
+    score += visibility.hours_in_darkness * 10
+  }
+
+  // Base score
+  score += 30
+
+  return Math.round(score * 10) / 10
+}
+
 export function calculateMiniAltitudeData(
   raDegrees: number,
   decDegrees: number,

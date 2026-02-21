@@ -112,28 +112,31 @@ async function syncShowcaseImages(
 
   // Get locally cached checksums
   const localChecksums = await getShowcaseImageChecksums()
-  const currentCacheSize = await getShowcaseImagesTotalSize()
 
-  // Determine which images need to be downloaded
+  // Determine which images need to be downloaded vs already synced
   const toDownload: ShowcaseExportItem[] = []
-  let downloadSize = 0
+  let alreadySyncedSize = 0
 
   for (const showcase of metadata.showcases) {
     const localChecksum = localChecksums.get(showcase.object_id)
-    if (localChecksum !== showcase.checksum) {
+    if (localChecksum === showcase.checksum) {
+      // Already synced with matching checksum
+      alreadySyncedSize += showcase.size_bytes
+    } else {
+      // Needs downloading (new or changed)
       toDownload.push(showcase)
-      downloadSize += showcase.size_bytes
     }
   }
 
-  console.log('[SyncContext] Need to download', toDownload.length, 'images, total size:', downloadSize)
+  const alreadySyncedCount = metadata.showcases.length - toDownload.length
+  console.log('[SyncContext] Already synced:', alreadySyncedCount, ', need to download:', toDownload.length)
 
   // Sort by size (smallest first) to maximize number of images within limit
   toDownload.sort((a, b) => a.size_bytes - b.size_bytes)
 
   // Download images, respecting size cap
-  let syncedCount = localChecksums.size - toDownload.length // Already synced
-  let syncedSizeBytes = currentCacheSize
+  let syncedCount = alreadySyncedCount
+  let syncedSizeBytes = alreadySyncedSize
   let skippedDueToLimit = 0
   let downloadedCount = 0
 

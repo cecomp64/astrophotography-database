@@ -471,12 +471,6 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link to="/projects" className="text-gray-400 hover:text-gray-200">
-          &larr; Back
-        </Link>
-      </div>
-
       {/* Header */}
       <div className="card">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
@@ -726,8 +720,8 @@ export default function ProjectDetailPage() {
 
       {/* Altitude Chart */}
       {selectedTargetId && (
-        <div className="card">
-          <div className="flex justify-between items-center mb-4">
+        <div className="card px-2 sm:px-4">
+          <div className="flex justify-between items-center mb-4 px-2 sm:px-0">
             <h2 className="text-xl font-semibold">
               Altitude Chart - {project.targets.find((t) => t.object_id === selectedTargetId)?.object_name}
             </h2>
@@ -740,7 +734,9 @@ export default function ProjectDetailPage() {
               </svg>
             </button>
           </div>
-          <AltitudeChart objectId={selectedTargetId} />
+          <div className="-mx-2 sm:mx-0">
+            <AltitudeChart objectId={selectedTargetId} />
+          </div>
         </div>
       )}
 

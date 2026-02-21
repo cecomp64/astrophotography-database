@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
-  catalogueApi as onlineCatalogueApi,
   CatalogueObject,
   WellPlacedObject,
   WellPlacedObjectsResponse,
@@ -57,6 +56,7 @@ export default function CataloguePage() {
   const [minAltitude, setMinAltitude] = useState(30)
   const [page, setPage] = useState(0)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [filtersExpanded, setFiltersExpanded] = useState(false)
   const pageSize = 50
 
   // Sorting state
@@ -83,10 +83,11 @@ export default function CataloguePage() {
     sortOrder,
   ])
 
-  // Query for well-placed objects (when visibleTonight is true) - only in desktop mode
+  // Query for well-placed objects (when visibleTonight is true)
   const { data: wellPlacedData, isLoading: wellPlacedLoading } = useQuery({
     queryKey: [
       'catalogueWellPlaced',
+      pwa ? 'pwa' : 'online',
       catalogFilter,
       typeFilter,
       constellationFilter,
@@ -99,7 +100,7 @@ export default function CataloguePage() {
       page,
     ],
     queryFn: () =>
-      onlineCatalogueApi.getWellPlaced({
+      catalogueApi.getWellPlaced({
         skip: page * pageSize,
         limit: pageSize,
         min_altitude: minAltitude,
@@ -112,7 +113,7 @@ export default function CataloguePage() {
         min_size: minSize ? parseFloat(minSize) : undefined,
         max_size: maxSize ? parseFloat(maxSize) : undefined,
       }),
-    enabled: visibleTonight && !pwa,
+    enabled: visibleTonight,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
   })
@@ -354,7 +355,8 @@ export default function CataloguePage() {
       />
 
       <div className="card">
-        <form onSubmit={handleSearch} className="flex flex-wrap gap-4">
+        {/* Search - always visible */}
+        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 min-w-[200px]">
             <input
               type="text"
@@ -365,6 +367,29 @@ export default function CataloguePage() {
             />
           </div>
 
+          <div className="flex gap-2">
+            <button type="submit" className="btn btn-primary flex-1 sm:flex-none">
+              Search
+            </button>
+            {/* Filters toggle for mobile */}
+            <button
+              type="button"
+              onClick={() => setFiltersExpanded(!filtersExpanded)}
+              className="sm:hidden flex items-center gap-2 px-3 py-2 text-sm text-gray-400 hover:text-gray-200 bg-space-700 rounded transition-colors"
+            >
+              <span className={`transform transition-transform ${filtersExpanded ? 'rotate-90' : ''}`}>
+                ▶
+              </span>
+              <span>Filters</span>
+              {(catalogFilter || typeFilter || constellationFilter || minMagnitude || maxMagnitude || minSize || maxSize || visibleTonight) && (
+                <span className="bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded">Active</span>
+              )}
+            </button>
+          </div>
+        </form>
+
+        {/* Desktop filters - always visible on sm+ */}
+        <div className="hidden sm:flex flex-wrap gap-4 mt-4 pt-4 border-t border-space-600">
           <select
             value={catalogFilter}
             onChange={(e) => {
@@ -413,12 +438,6 @@ export default function CataloguePage() {
             ))}
           </select>
 
-          <button type="submit" className="btn btn-primary">
-            Search
-          </button>
-        </form>
-
-        <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-space-600">
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-400">Magnitude:</span>
             <input
@@ -473,17 +492,15 @@ export default function CataloguePage() {
             />
           </div>
 
-          {!pwa && (
-            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={visibleTonight}
-                onChange={(e) => setVisibleTonight(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-800"
-              />
-              Visible tonight
-            </label>
-          )}
+          <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={visibleTonight}
+              onChange={(e) => setVisibleTonight(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-800"
+            />
+            Visible tonight
+          </label>
 
           {visibleTonight && (
             <div className="flex items-center gap-2">
@@ -503,14 +520,13 @@ export default function CataloguePage() {
             </div>
           )}
 
-          {(minMagnitude ||
-            maxMagnitude ||
-            minSize ||
-            maxSize ||
-            visibleTonight) && (
+          {(catalogFilter || typeFilter || constellationFilter || minMagnitude || maxMagnitude || minSize || maxSize || visibleTonight) && (
             <button
               type="button"
               onClick={() => {
+                setCatalogFilter('')
+                setTypeFilter('')
+                setConstellationFilter('')
                 setMinMagnitude('')
                 setMaxMagnitude('')
                 setMinSize('')
@@ -524,6 +540,161 @@ export default function CataloguePage() {
             </button>
           )}
         </div>
+
+        {/* Mobile filters - collapsible */}
+        {filtersExpanded && (
+          <div className="sm:hidden flex flex-col gap-3 mt-4 pt-4 border-t border-space-600">
+            <select
+              value={catalogFilter}
+              onChange={(e) => {
+                setCatalogFilter(e.target.value)
+                setPage(0)
+              }}
+              className="input"
+            >
+              <option value="">All Catalogues</option>
+              {catalogOptions.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat} {catalogs && `(${catalogs[cat]})`}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={typeFilter}
+              onChange={(e) => {
+                setTypeFilter(e.target.value)
+                setPage(0)
+              }}
+              className="input"
+            >
+              <option value="">All Types</option>
+              {objectTypes?.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={constellationFilter}
+              onChange={(e) => {
+                setConstellationFilter(e.target.value)
+                setPage(0)
+              }}
+              className="input"
+            >
+              <option value="">All Constellations</option>
+              {constellations?.map((constellation) => (
+                <option key={constellation} value={constellation}>
+                  {constellation}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">Magnitude:</span>
+              <input
+                type="number"
+                step="0.1"
+                value={minMagnitude}
+                onChange={(e) => {
+                  setMinMagnitude(e.target.value)
+                  setPage(0)
+                }}
+                placeholder="Min"
+                className="input w-20"
+              />
+              <span className="text-gray-500">-</span>
+              <input
+                type="number"
+                step="0.1"
+                value={maxMagnitude}
+                onChange={(e) => {
+                  setMaxMagnitude(e.target.value)
+                  setPage(0)
+                }}
+                placeholder="Max"
+                className="input w-20"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">Size (arcmin):</span>
+              <input
+                type="number"
+                step="0.1"
+                value={minSize}
+                onChange={(e) => {
+                  setMinSize(e.target.value)
+                  setPage(0)
+                }}
+                placeholder="Min"
+                className="input w-20"
+              />
+              <span className="text-gray-500">-</span>
+              <input
+                type="number"
+                step="0.1"
+                value={maxSize}
+                onChange={(e) => {
+                  setMaxSize(e.target.value)
+                  setPage(0)
+                }}
+                placeholder="Max"
+                className="input w-20"
+              />
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={visibleTonight}
+                onChange={(e) => setVisibleTonight(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-green-500 focus:ring-green-500 focus:ring-offset-gray-800"
+              />
+              Visible tonight
+            </label>
+
+            {visibleTonight && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-400 whitespace-nowrap">
+                  Min altitude:
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={60}
+                  step={5}
+                  value={minAltitude}
+                  onChange={(e) => setMinAltitude(Number(e.target.value))}
+                  className="w-24 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-green-500"
+                />
+                <span className="text-sm text-gray-300 w-8">{minAltitude}°</span>
+              </div>
+            )}
+
+            {(catalogFilter || typeFilter || constellationFilter || minMagnitude || maxMagnitude || minSize || maxSize || visibleTonight) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCatalogFilter('')
+                  setTypeFilter('')
+                  setConstellationFilter('')
+                  setMinMagnitude('')
+                  setMaxMagnitude('')
+                  setMinSize('')
+                  setMaxSize('')
+                  setVisibleTonight(false)
+                  setPage(0)
+                }}
+                className="text-sm text-gray-400 hover:text-white"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {isLoading ? (

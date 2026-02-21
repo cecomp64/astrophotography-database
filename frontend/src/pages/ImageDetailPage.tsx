@@ -69,10 +69,7 @@ export default function ImageDetailPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/images" className="text-blue-400 hover:text-blue-300 text-sm">
-            &larr; Back to Images
-          </Link>
-          <h1 className="text-2xl font-bold mt-2">{image.file_name}</h1>
+          <h1 className="text-2xl font-bold">{image.file_name}</h1>
           <p className="text-gray-400 text-sm mt-1 break-all">{image.file_path}</p>
         </div>
       </div>

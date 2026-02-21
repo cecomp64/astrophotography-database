@@ -17,7 +17,15 @@ import {
   CatalogueObject,
   CatalogueObjectsResponse,
   CatalogueAlias,
+  WellPlacedObject,
+  WellPlacedObjectsResponse,
+  VisibilityInfo,
 } from '../../api/client'
+import {
+  calculateBatchVisibility,
+  calculateVisibilityScore,
+  getStoredLocation,
+} from '../services/astronomy'
 import {
   query,
   queryOne,
@@ -725,5 +733,152 @@ export const offlineCatalogueApi = {
       result[r.catalog] = r.count
     })
     return result
+  },
+
+  getWellPlaced: async (params?: {
+    skip?: number
+    limit?: number
+    min_altitude?: number
+    catalog?: string
+    object_type?: string
+    constellation?: string
+    min_magnitude?: number
+    max_magnitude?: number
+    min_size?: number
+    max_size?: number
+    search?: string
+  }): Promise<WellPlacedObjectsResponse> => {
+    const location = getStoredLocation()
+    if (!location) {
+      return {
+        location_configured: false,
+        total: 0,
+        skip: 0,
+        limit: 50,
+        objects: [],
+      }
+    }
+
+    const minAltitude = params?.min_altitude ?? 30
+
+    // First, get all objects matching filters (we need to filter after visibility calc)
+    let sql = 'SELECT * FROM objects WHERE ra IS NOT NULL AND dec IS NOT NULL'
+    const sqlParams: unknown[] = []
+
+    if (params?.object_type) {
+      sql += ' AND object_type = ?'
+      sqlParams.push(params.object_type)
+    }
+    if (params?.constellation) {
+      sql += ' AND constellation = ?'
+      sqlParams.push(params.constellation)
+    }
+    if (params?.min_magnitude !== undefined) {
+      sql += ' AND magnitude >= ?'
+      sqlParams.push(params.min_magnitude)
+    }
+    if (params?.max_magnitude !== undefined) {
+      sql += ' AND magnitude <= ?'
+      sqlParams.push(params.max_magnitude)
+    }
+    if (params?.min_size !== undefined) {
+      sql += ' AND size_major >= ?'
+      sqlParams.push(params.min_size)
+    }
+    if (params?.max_size !== undefined) {
+      sql += ' AND size_major <= ?'
+      sqlParams.push(params.max_size)
+    }
+    if (params?.search) {
+      const pattern = `%${params.search}%`
+      sql += ' AND (primary_name LIKE ? OR id IN (SELECT object_id FROM object_aliases WHERE alias_name LIKE ?))'
+      sqlParams.push(pattern, pattern)
+    }
+    if (params?.catalog) {
+      sql += ' AND id IN (SELECT object_id FROM object_aliases WHERE catalog = ?)'
+      sqlParams.push(params.catalog)
+    }
+
+    const objects = query<DbObject>(sql, sqlParams)
+
+    // Calculate visibility for all matching objects in batch
+    const objectsForCalc = objects.map((obj) => ({
+      id: obj.id,
+      ra: obj.ra,
+      dec: obj.dec,
+    }))
+
+    const visibilityResults = calculateBatchVisibility(objectsForCalc, location, minAltitude)
+
+    // Filter to only visible objects and build response
+    const wellPlacedObjects: WellPlacedObject[] = []
+
+    for (const obj of objects) {
+      const visibility = visibilityResults[obj.id]
+      if (!visibility || !visibility.is_visible_tonight) continue
+
+      const aliases = query<DbObjectAlias>(
+        'SELECT * FROM object_aliases WHERE object_id = ?',
+        [obj.id]
+      )
+
+      // Get image count for this object
+      const imageCount = queryScalar<number>(
+        'SELECT COUNT(*) FROM images WHERE object_id = ?',
+        [obj.id]
+      ) ?? 0
+
+      const score = calculateVisibilityScore(visibility)
+
+      // Convert our VisibilityInfo to the API's VisibilityInfo format
+      const fullVisibility: VisibilityInfo = {
+        is_visible_tonight: visibility.is_visible_tonight,
+        current_altitude: visibility.current_altitude,
+        max_altitude: visibility.max_altitude,
+        transit_time: visibility.transit_time,
+        hours_above_min_altitude: visibility.hours_in_darkness, // Approximate
+        hours_in_darkness: visibility.hours_in_darkness,
+        rise_time: null, // Not calculated in batch mode
+        set_time: null,  // Not calculated in batch mode
+      }
+
+      wellPlacedObjects.push({
+        id: obj.id,
+        primary_name: obj.primary_name,
+        object_type: obj.object_type,
+        constellation: obj.constellation,
+        magnitude: obj.magnitude,
+        size_major: obj.size_major,
+        size_minor: obj.size_minor,
+        ra: obj.ra,
+        dec: obj.dec,
+        image_count: imageCount,
+        visibility: fullVisibility,
+        score,
+        aliases: aliases.map((a) => ({
+          id: a.id,
+          object_id: a.object_id,
+          alias_name: a.alias_name,
+          catalog: a.catalog,
+          created_at: a.created_at,
+        })),
+      })
+    }
+
+    // Sort by score (highest first)
+    wellPlacedObjects.sort((a, b) => b.score - a.score)
+
+    // Apply pagination
+    const skip = params?.skip ?? 0
+    const limit = params?.limit ?? 50
+    const paginatedObjects = wellPlacedObjects.slice(skip, skip + limit)
+
+    return {
+      location_configured: true,
+      total: wellPlacedObjects.length,
+      skip,
+      limit,
+      objects: paginatedObjects,
+    }
   },
 }
