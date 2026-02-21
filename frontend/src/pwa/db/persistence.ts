@@ -1,6 +1,6 @@
 /**
- * IndexedDB persistence layer for storing the SQLite database binary
- * and sync metadata.
+ * IndexedDB persistence layer for storing the SQLite database binary,
+ * showcase images, and sync metadata.
  */
 import { openDB, DBSchema, IDBPDatabase } from 'idb'
 
@@ -23,10 +23,20 @@ interface AstroDBSchema extends DBSchema {
       value: unknown
     }
   }
+  showcaseImages: {
+    key: number // object_id
+    value: {
+      objectId: number
+      blob: Blob
+      checksum: string
+      sizeBytes: number
+      syncedAt: string
+    }
+  }
 }
 
 const DB_NAME = 'astrodb-pwa'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 let dbPromise: Promise<IDBPDatabase<AstroDBSchema>> | null = null
 
@@ -41,6 +51,10 @@ function getDb(): Promise<IDBPDatabase<AstroDBSchema>> {
         // Store for settings (server URL, etc.)
         if (!db.objectStoreNames.contains('settings')) {
           db.createObjectStore('settings', { keyPath: 'key' })
+        }
+        // Store for showcase images (added in v2)
+        if (!db.objectStoreNames.contains('showcaseImages')) {
+          db.createObjectStore('showcaseImages', { keyPath: 'objectId' })
         }
       },
     })
@@ -154,4 +168,93 @@ export async function getServerUrl(): Promise<string | null> {
  */
 export async function setServerUrl(url: string): Promise<void> {
   return saveSetting('serverUrl', url)
+}
+
+// ============================================================================
+// Showcase Image Storage
+// ============================================================================
+
+export interface ShowcaseImageRecord {
+  objectId: number
+  blob: Blob
+  checksum: string
+  sizeBytes: number
+  syncedAt: string
+}
+
+/**
+ * Save a showcase image to IndexedDB
+ */
+export async function saveShowcaseImage(
+  objectId: number,
+  blob: Blob,
+  checksum: string
+): Promise<void> {
+  const db = await getDb()
+  await db.put('showcaseImages', {
+    objectId,
+    blob,
+    checksum,
+    sizeBytes: blob.size,
+    syncedAt: new Date().toISOString(),
+  })
+}
+
+/**
+ * Get a showcase image by object ID
+ */
+export async function getShowcaseImage(
+  objectId: number
+): Promise<ShowcaseImageRecord | null> {
+  const db = await getDb()
+  const record = await db.get('showcaseImages', objectId)
+  return record || null
+}
+
+/**
+ * Get all stored showcase image metadata (without blobs)
+ */
+export async function getShowcaseImageChecksums(): Promise<
+  Map<number, string>
+> {
+  const db = await getDb()
+  const records = await db.getAll('showcaseImages')
+  const checksums = new Map<number, string>()
+  for (const record of records) {
+    checksums.set(record.objectId, record.checksum)
+  }
+  return checksums
+}
+
+/**
+ * Get total size of stored showcase images in bytes
+ */
+export async function getShowcaseImagesTotalSize(): Promise<number> {
+  const db = await getDb()
+  const records = await db.getAll('showcaseImages')
+  return records.reduce((sum, record) => sum + record.sizeBytes, 0)
+}
+
+/**
+ * Get count of stored showcase images
+ */
+export async function getShowcaseImagesCount(): Promise<number> {
+  const db = await getDb()
+  return await db.count('showcaseImages')
+}
+
+/**
+ * Delete a showcase image
+ */
+export async function deleteShowcaseImage(objectId: number): Promise<void> {
+  const db = await getDb()
+  await db.delete('showcaseImages', objectId)
+}
+
+/**
+ * Clear all showcase images
+ */
+export async function clearShowcaseImages(): Promise<void> {
+  const db = await getDb()
+  await db.clear('showcaseImages')
 }

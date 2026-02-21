@@ -15,6 +15,7 @@ export default function SyncSettings() {
     setServerUrl,
     sync,
     clearLocal,
+    imageStats,
   } = useSync()
   const { isReady, syncMetadata } = useOfflineDb()
   const [inputUrl, setInputUrl] = useState(serverUrl)
@@ -75,7 +76,13 @@ export default function SyncSettings() {
     return new Date(isoString).toLocaleString()
   }
 
-  const isLoading = status === 'checking' || status === 'downloading' || status === 'loading'
+  const isLoading = status === 'checking' || status === 'downloading' || status === 'loading' || status === 'syncing_images'
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
 
   return (
     <div className="space-y-6">
@@ -150,6 +157,21 @@ export default function SyncSettings() {
         </div>
       )}
 
+      {status === 'syncing_images' && (
+        <div>
+          <div className="flex justify-between text-sm text-gray-400 mb-1">
+            <span>Syncing showcase images...</span>
+            <span>{progress}%</span>
+          </div>
+          <div className="h-2 bg-space-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-purple-500 transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Certificate Error - Special handling with link */}
       {status === 'cert_error' && serverUrl && (
         <div className="p-4 bg-yellow-900/50 border border-yellow-700 rounded-lg space-y-3">
@@ -212,6 +234,31 @@ export default function SyncSettings() {
                 {syncMetadata.checksum.slice(0, 8)}
               </dd>
             </div>
+            {imageStats && (
+              <>
+                <div className="border-t border-space-600 my-2" />
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Images Cached</dt>
+                  <dd className="text-gray-300">
+                    {imageStats.syncedCount} / {imageStats.totalCount}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-gray-500">Cache Size</dt>
+                  <dd className="text-gray-300">
+                    {formatBytes(imageStats.syncedSizeBytes)}
+                  </dd>
+                </div>
+                {imageStats.skippedDueToLimit > 0 && (
+                  <div className="flex justify-between">
+                    <dt className="text-gray-500">Skipped (limit)</dt>
+                    <dd className="text-yellow-400">
+                      {imageStats.skippedDueToLimit}
+                    </dd>
+                  </div>
+                )}
+              </>
+            )}
           </dl>
         ) : (
           <p className="text-gray-500">

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { configApi, SavedLocation, SavedLocationCreate, TelescopiusApiKeyConfig } from '../api/client'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
+import { getStoredLocation } from '../pwa/services/astronomy'
 
 const COMMON_TIMEZONES = [
   { value: 'UTC', label: 'UTC' },
@@ -40,6 +42,7 @@ const emptyFormData: LocationFormData = {
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
+  const pwa = isPwaMode()
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Location form state
@@ -47,9 +50,13 @@ export default function SettingsPage() {
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null)
   const [locationForm, setLocationForm] = useState<LocationFormData>(emptyFormData)
 
+  // Get stored location for PWA mode
+  const storedLocation = pwa ? getStoredLocation() : null
+
   const { data: locationsConfig, isLoading } = useQuery({
     queryKey: ['config', 'locations'],
     queryFn: configApi.getLocations,
+    enabled: !pwa, // Disable in PWA mode
   })
 
   // Telescopius API key state
@@ -59,6 +66,7 @@ export default function SettingsPage() {
   const { data: apiKeyConfig, isLoading: isLoadingApiKey } = useQuery({
     queryKey: ['config', 'telescopius-api-key'],
     queryFn: configApi.getTelescopiusApiKey,
+    enabled: !pwa, // Disable in PWA mode
   })
 
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -201,6 +209,53 @@ export default function SettingsPage() {
 
   const locations = locationsConfig?.locations ?? []
   const activeId = locationsConfig?.active_id
+
+  // PWA mode - show read-only location info
+  if (pwa) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Settings</h1>
+          <p className="text-gray-400">Viewing synced settings (read-only in offline mode)</p>
+        </div>
+
+        <div className="card">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold">Observer Location</h2>
+            <p className="text-gray-400 text-sm mt-1">
+              Location used for altitude chart calculations.
+            </p>
+          </div>
+
+          {storedLocation ? (
+            <div className="p-4 bg-blue-900/30 rounded-lg border border-blue-600">
+              <div className="text-sm text-gray-400 mb-1">Active Location</div>
+              <div className="font-medium">
+                {storedLocation.latitude.toFixed(4)}°, {storedLocation.longitude.toFixed(4)}°
+              </div>
+              <div className="text-sm text-gray-400 mt-1">
+                Timezone: {storedLocation.timezone}
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 bg-yellow-900/20 rounded-lg border border-yellow-700/50">
+              <p className="text-yellow-300 text-sm">
+                No location configured. Configure your location on the desktop app and re-sync to enable altitude charts.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+            <p className="text-gray-400 text-sm">
+              Settings can only be modified on the desktop app. Changes will be synced to your device on the next sync.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

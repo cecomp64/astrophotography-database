@@ -1,6 +1,6 @@
 """
 Export router for PWA database sync.
-Provides endpoints to download the SQLite database file for offline use.
+Provides endpoints to download the SQLite database file and showcase images for offline use.
 """
 import gzip
 import hashlib
@@ -10,12 +10,13 @@ from io import BytesIO
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import SessionLocal
+from app.models.showcases import ObjectShowcase
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -27,6 +28,30 @@ class ExportMetadata(BaseModel):
     checksum: str
     last_modified: str
     row_counts: dict[str, int]
+
+
+class ShowcaseExportItem(BaseModel):
+    """Metadata for a single showcase image in the export list."""
+    object_id: int
+    checksum: str
+    size_bytes: int
+    source_type: str
+
+
+class ShowcasesExportMetadata(BaseModel):
+    """Metadata about all showcase images available for sync."""
+    total_count: int
+    total_size_bytes: int
+    showcases: list[ShowcaseExportItem]
+
+
+def get_showcases_dir() -> Path:
+    """Get the showcases directory path."""
+    user_data = os.getenv("APP_USER_DATA")
+    if user_data:
+        return Path(user_data) / "showcases"
+    # Fallback for development
+    return Path("./showcases")
 
 
 def get_database_path() -> Path:
@@ -143,3 +168,84 @@ async def export_sqlite():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error exporting database: {str(e)}")
+
+
+@router.get("/showcases", response_model=ShowcasesExportMetadata)
+async def get_showcases_metadata():
+    """
+    Get metadata about all showcase images available for sync.
+    Returns list of object IDs with checksums and sizes for incremental sync.
+    """
+    showcases_dir = get_showcases_dir()
+    db = SessionLocal()
+
+    try:
+        # Get all showcases from database
+        showcases = db.query(ObjectShowcase).all()
+
+        items = []
+        total_size = 0
+
+        for showcase in showcases:
+            file_path = showcases_dir / showcase.file_path
+            if file_path.exists():
+                stat = file_path.stat()
+                checksum = compute_file_checksum(file_path)
+                items.append(ShowcaseExportItem(
+                    object_id=showcase.object_id,
+                    checksum=checksum,
+                    size_bytes=stat.st_size,
+                    source_type=showcase.source_type,
+                ))
+                total_size += stat.st_size
+
+        return ShowcasesExportMetadata(
+            total_count=len(items),
+            total_size_bytes=total_size,
+            showcases=items,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/showcases/{object_id}")
+async def export_showcase_image(object_id: int):
+    """
+    Download a specific showcase image by object ID.
+    Returns raw image bytes (JPEG or PNG).
+    """
+    showcases_dir = get_showcases_dir()
+    db = SessionLocal()
+
+    try:
+        showcase = db.query(ObjectShowcase).filter(
+            ObjectShowcase.object_id == object_id
+        ).first()
+
+        if not showcase:
+            raise HTTPException(status_code=404, detail=f"No showcase for object {object_id}")
+
+        file_path = showcases_dir / showcase.file_path
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Showcase image file not found")
+
+        # Determine media type
+        media_type = "image/jpeg" if showcase.file_path.endswith(".jpg") else "image/png"
+
+        # Read file and return with checksum header
+        with open(file_path, "rb") as f:
+            content = f.read()
+
+        checksum = hashlib.md5(content).hexdigest()
+
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={
+                "X-Checksum": checksum,
+                "X-Object-Id": str(object_id),
+                "X-Source-Type": showcase.source_type,
+            },
+        )
+    finally:
+        db.close()

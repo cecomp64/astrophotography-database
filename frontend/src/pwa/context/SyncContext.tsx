@@ -1,6 +1,6 @@
 /**
  * React context for managing database sync operations.
- * Handles fetching the database from the desktop app and storing it locally.
+ * Handles fetching the database and showcase images from the desktop app and storing them locally.
  */
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
 import {
@@ -10,12 +10,20 @@ import {
   getServerUrl,
   setServerUrl as persistServerUrl,
   SyncMetadata,
+  saveShowcaseImage,
+  getShowcaseImageChecksums,
+  getShowcaseImagesTotalSize,
+  getShowcaseImagesCount,
+  clearShowcaseImages,
 } from '../db/persistence'
 import { loadDatabaseFromBuffer, validateDatabase } from '../db/offline-db'
 import { useOfflineDb } from './OfflineDbContext'
 import { storeLocation, ObserverLocation } from '../services/astronomy'
 
-export type SyncStatus = 'idle' | 'checking' | 'downloading' | 'loading' | 'success' | 'error' | 'cert_error'
+// Maximum total size for cached showcase images (50 MB default)
+const SHOWCASE_CACHE_MAX_BYTES = 50 * 1024 * 1024
+
+export type SyncStatus = 'idle' | 'checking' | 'downloading' | 'loading' | 'syncing_images' | 'success' | 'error' | 'cert_error'
 
 interface ExportMetadata {
   version: string
@@ -23,6 +31,27 @@ interface ExportMetadata {
   checksum: string
   last_modified: string
   row_counts: Record<string, number>
+}
+
+interface ShowcaseExportItem {
+  object_id: number
+  checksum: string
+  size_bytes: number
+  source_type: string
+}
+
+interface ShowcasesExportMetadata {
+  total_count: number
+  total_size_bytes: number
+  showcases: ShowcaseExportItem[]
+}
+
+interface ImageSyncStats {
+  totalCount: number
+  syncedCount: number
+  totalSizeBytes: number
+  syncedSizeBytes: number
+  skippedDueToLimit: number
 }
 
 interface SyncContextValue {
@@ -44,9 +73,111 @@ interface SyncContextValue {
   clearLocal: () => Promise<void>
   /** Last sync metadata */
   lastSync: SyncMetadata | null
+  /** Image sync statistics */
+  imageStats: ImageSyncStats | null
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null)
+
+/**
+ * Sync showcase images from the server.
+ * Downloads images that are new or changed, respecting the size cap.
+ */
+async function syncShowcaseImages(
+  serverUrl: string,
+  setProgress: (progress: number) => void,
+  setImageStats: (stats: ImageSyncStats) => void
+): Promise<void> {
+  console.log('[SyncContext] Starting showcase image sync')
+
+  // Get list of available showcases from server
+  const response = await fetch(`${serverUrl}/api/export/showcases`)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch showcase list: ${response.status}`)
+  }
+
+  const metadata: ShowcasesExportMetadata = await response.json()
+  console.log('[SyncContext] Server has', metadata.total_count, 'showcases, total size:', metadata.total_size_bytes)
+
+  if (metadata.total_count === 0) {
+    setImageStats({
+      totalCount: 0,
+      syncedCount: 0,
+      totalSizeBytes: 0,
+      syncedSizeBytes: 0,
+      skippedDueToLimit: 0,
+    })
+    return
+  }
+
+  // Get locally cached checksums
+  const localChecksums = await getShowcaseImageChecksums()
+  const currentCacheSize = await getShowcaseImagesTotalSize()
+
+  // Determine which images need to be downloaded
+  const toDownload: ShowcaseExportItem[] = []
+  let downloadSize = 0
+
+  for (const showcase of metadata.showcases) {
+    const localChecksum = localChecksums.get(showcase.object_id)
+    if (localChecksum !== showcase.checksum) {
+      toDownload.push(showcase)
+      downloadSize += showcase.size_bytes
+    }
+  }
+
+  console.log('[SyncContext] Need to download', toDownload.length, 'images, total size:', downloadSize)
+
+  // Sort by size (smallest first) to maximize number of images within limit
+  toDownload.sort((a, b) => a.size_bytes - b.size_bytes)
+
+  // Download images, respecting size cap
+  let syncedCount = localChecksums.size - toDownload.length // Already synced
+  let syncedSizeBytes = currentCacheSize
+  let skippedDueToLimit = 0
+  let downloadedCount = 0
+
+  for (const showcase of toDownload) {
+    // Check if adding this image would exceed the limit
+    if (syncedSizeBytes + showcase.size_bytes > SHOWCASE_CACHE_MAX_BYTES) {
+      console.log('[SyncContext] Skipping showcase', showcase.object_id, '- would exceed cache limit')
+      skippedDueToLimit++
+      continue
+    }
+
+    try {
+      const imgResponse = await fetch(`${serverUrl}/api/export/showcases/${showcase.object_id}`)
+      if (!imgResponse.ok) {
+        console.warn('[SyncContext] Failed to download showcase', showcase.object_id)
+        continue
+      }
+
+      const blob = await imgResponse.blob()
+      await saveShowcaseImage(showcase.object_id, blob, showcase.checksum)
+
+      syncedCount++
+      syncedSizeBytes += blob.size
+      downloadedCount++
+
+      // Update progress
+      const progressPct = Math.round((downloadedCount / toDownload.length) * 100)
+      setProgress(progressPct)
+    } catch (err) {
+      console.warn('[SyncContext] Error downloading showcase', showcase.object_id, err)
+    }
+  }
+
+  const stats: ImageSyncStats = {
+    totalCount: metadata.total_count,
+    syncedCount,
+    totalSizeBytes: metadata.total_size_bytes,
+    syncedSizeBytes,
+    skippedDueToLimit,
+  }
+
+  setImageStats(stats)
+  console.log('[SyncContext] Showcase sync complete:', stats)
+}
 
 interface SyncProviderProps {
   children: ReactNode
@@ -58,9 +189,10 @@ export function SyncProvider({ children }: SyncProviderProps) {
   const [error, setError] = useState<string | null>(null)
   const [serverUrl, setServerUrlState] = useState('')
   const [lastSync, setLastSync] = useState<SyncMetadata | null>(null)
+  const [imageStats, setImageStats] = useState<ImageSyncStats | null>(null)
   const { reload: reloadDb, clear: clearDb } = useOfflineDb()
 
-  // Load persisted server URL on mount
+  // Load persisted server URL and image stats on mount
   useEffect(() => {
     getServerUrl().then((url) => {
       if (url) setServerUrlState(url)
@@ -68,6 +200,20 @@ export function SyncProvider({ children }: SyncProviderProps) {
     getSyncMetadata().then((meta) => {
       if (meta) setLastSync(meta)
     })
+    // Load cached image stats
+    Promise.all([getShowcaseImagesCount(), getShowcaseImagesTotalSize()]).then(
+      ([count, size]) => {
+        if (count > 0) {
+          setImageStats({
+            totalCount: count,
+            syncedCount: count,
+            totalSizeBytes: size,
+            syncedSizeBytes: size,
+            skippedDueToLimit: 0,
+          })
+        }
+      }
+    )
   }, [])
 
   const setServerUrl = async (url: string) => {
@@ -229,10 +375,10 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
       // Fetch and store observer location for offline altitude calculations
       try {
-        const configResponse = await fetch(`${syncUrl}/api/configuration/location`)
+        const configResponse = await fetch(`${syncUrl}/api/config/locations/active`)
         if (configResponse.ok) {
           const locationData = await configResponse.json()
-          if (locationData.latitude && locationData.longitude && locationData.timezone) {
+          if (locationData && locationData.latitude && locationData.longitude && locationData.timezone) {
             const observerLocation: ObserverLocation = {
               latitude: locationData.latitude,
               longitude: locationData.longitude,
@@ -245,6 +391,16 @@ export function SyncProvider({ children }: SyncProviderProps) {
       } catch (locErr) {
         // Location sync is optional - don't fail the whole sync
         console.warn('[SyncContext] Failed to sync observer location:', locErr)
+      }
+
+      // Sync showcase images
+      try {
+        setStatus('syncing_images')
+        setProgress(0)
+        await syncShowcaseImages(syncUrl, setProgress, setImageStats)
+      } catch (imgErr) {
+        // Image sync is optional - don't fail the whole sync
+        console.warn('[SyncContext] Failed to sync showcase images:', imgErr)
       }
 
       setStatus('success')
@@ -278,8 +434,10 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
   const clearLocal = useCallback(async () => {
     await clearDatabase()
+    await clearShowcaseImages()
     clearDb()
     setLastSync(null)
+    setImageStats(null)
     setStatus('idle')
   }, [clearDb])
 
@@ -295,6 +453,7 @@ export function SyncProvider({ children }: SyncProviderProps) {
         sync,
         clearLocal,
         lastSync,
+        imageStats,
       }}
     >
       {children}
@@ -313,6 +472,7 @@ const defaultValue: SyncContextValue = {
   sync: async () => false,
   clearLocal: async () => {},
   lastSync: null,
+  imageStats: null,
 }
 
 export function useSync(): SyncContextValue {

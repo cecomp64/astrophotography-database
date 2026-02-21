@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { showcasesApi } from '../api/client'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
+import { getShowcaseImage } from '../pwa/db/persistence'
 
 interface ShowcaseImageProps {
   objectId: number
@@ -20,12 +22,43 @@ export default function ShowcaseImage({
   className = '',
 }: ShowcaseImageProps) {
   const queryClient = useQueryClient()
+  const pwa = isPwaMode()
   const [imageError, setImageError] = useState(false)
+  const [cachedImageUrl, setCachedImageUrl] = useState<string | null>(null)
+  const [cachedImageLoading, setCachedImageLoading] = useState(pwa)
+
+  // Load cached image from IndexedDB in PWA mode
+  useEffect(() => {
+    if (!pwa) return
+
+    let objectUrl: string | null = null
+
+    getShowcaseImage(objectId)
+      .then((record) => {
+        if (record) {
+          objectUrl = URL.createObjectURL(record.blob)
+          setCachedImageUrl(objectUrl)
+        }
+        setCachedImageLoading(false)
+      })
+      .catch((err) => {
+        console.warn('Failed to load cached showcase image:', err)
+        setCachedImageLoading(false)
+      })
+
+    // Cleanup object URL on unmount
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
+    }
+  }, [pwa, objectId])
 
   const { data: showcase, isLoading } = useQuery({
     queryKey: ['showcase', objectId],
     queryFn: () => showcasesApi.get(objectId),
     staleTime: 5 * 60 * 1000,
+    enabled: !pwa, // Disable in PWA mode - images require server
   })
 
   const fetchSurveyMutation = useMutation({
@@ -48,6 +81,35 @@ export default function ShowcaseImage({
   }
 
   const hasCoordinates = ra !== null && dec !== null
+
+  // In PWA mode, show cached image or placeholder
+  if (pwa) {
+    if (cachedImageLoading) {
+      return (
+        <div className={`${sizeClasses[size]} bg-space-700 rounded-lg animate-pulse ${className}`} />
+      )
+    }
+
+    if (cachedImageUrl) {
+      return (
+        <div className={`relative ${className}`}>
+          <img
+            src={cachedImageUrl}
+            alt={objectName}
+            className={`${sizeClasses[size]} object-cover rounded-lg`}
+            onError={() => setCachedImageUrl(null)}
+          />
+        </div>
+      )
+    }
+
+    // No cached image available
+    return (
+      <div className={`${sizeClasses[size]} bg-space-700 rounded-lg flex items-center justify-center ${className}`}>
+        <span className="text-gray-500 text-xs text-center px-2">Not synced</span>
+      </div>
+    )
+  }
 
   // Show loading state
   if (isLoading) {
