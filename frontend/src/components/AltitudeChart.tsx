@@ -96,21 +96,17 @@ interface ChartDataPoint extends AltitudeDataPoint {
 // Returns interval that shows appropriate number of labels for the width
 function getXAxisInterval(width: number): number {
   // Data has ~145 points (every 10 min for 24 hours)
-  // interval=11 means every 12th point = ~12 labels
-  if (width < 300) return 35      // ~4 labels for very narrow
-  if (width < 400) return 23      // ~6 labels for narrow
-  if (width < 500) return 17      // ~8 labels for medium-narrow
-  if (width < 600) return 14      // ~10 labels for medium
-  return 11                        // ~12 labels for wide
+  // We want to show only hour labels (every 6 points = 1 hour)
+  if (width < 300) return 36      // ~4 labels (every 6 hours)
+  if (width < 400) return 24      // ~6 labels (every 4 hours)
+  if (width < 550) return 18      // ~8 labels (every 3 hours)
+  return 12                        // ~12 labels (every 2 hours)
 }
 
-// Format time label - compact for narrow views
-function formatTimeLabel(time: string, compact: boolean): string {
-  if (!compact) return time
-  // For compact mode, show just the hour (e.g., "14" instead of "14:00")
-  const [hour, minute] = time.split(':')
-  if (minute === '00') return hour
-  return time // Show full time for non-hour times
+// Format time label - always show just the hour
+function formatTimeLabel(time: string): string {
+  const [hour] = time.split(':')
+  return hour
 }
 
 export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
@@ -353,7 +349,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
               tick={{ fill: '#9ca3af', fontSize: containerWidth < 400 ? 10 : 11 }}
               tickLine={{ stroke: '#6b7280' }}
               interval={getXAxisInterval(containerWidth)}
-              tickFormatter={(time) => formatTimeLabel(time, containerWidth < 500)}
+              tickFormatter={formatTimeLabel}
             />
             <YAxis
               yAxisId="main"
