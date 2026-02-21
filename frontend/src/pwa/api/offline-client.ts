@@ -19,6 +19,8 @@ import {
   CatalogueAlias,
   WellPlacedObject,
   WellPlacedObjectsResponse,
+  WellPlacedProject,
+  WellPlacedProjectsResponse,
   VisibilityInfo,
 } from '../../api/client'
 import {
@@ -538,6 +540,107 @@ export const offlineProjectsApi = {
       progress: null,
     }
   },
+
+  getWellPlaced: async (limit = 5): Promise<WellPlacedProjectsResponse> => {
+    const location = getStoredLocation()
+    if (!location) {
+      return {
+        location_configured: false,
+        projects: [],
+      }
+    }
+
+    // Get active projects (not completed/archived)
+    const projects = query<DbProject>(
+      "SELECT * FROM projects WHERE status IN ('planning', 'active', 'in_progress') ORDER BY priority DESC"
+    )
+
+    if (projects.length === 0) {
+      return {
+        location_configured: true,
+        projects: [],
+      }
+    }
+
+    // For each project, get the primary target
+    const projectsWithTargets: Array<{
+      project: DbProject
+      target: DbProjectTarget
+      object: DbObject
+    }> = []
+
+    for (const project of projects) {
+      // Get primary target (or first target if none marked primary)
+      const target = queryOne<DbProjectTarget>(
+        `SELECT * FROM project_targets WHERE project_id = ? ORDER BY is_primary DESC LIMIT 1`,
+        [project.id]
+      )
+
+      if (!target) continue
+
+      const object = queryOne<DbObject>(
+        'SELECT * FROM objects WHERE id = ?',
+        [target.object_id]
+      )
+
+      if (!object || object.ra === null || object.dec === null) continue
+
+      projectsWithTargets.push({ project, target, object })
+    }
+
+    // Calculate visibility for all primary targets
+    const objectsForCalc = projectsWithTargets.map((p) => ({
+      id: p.object.id,
+      ra: p.object.ra,
+      dec: p.object.dec,
+    }))
+
+    const visibilityResults = calculateBatchVisibility(objectsForCalc, location, 30)
+
+    // Build well-placed projects list
+    const wellPlacedProjects: WellPlacedProject[] = []
+
+    for (const { project, object } of projectsWithTargets) {
+      const visibility = visibilityResults[object.id]
+      if (!visibility || !visibility.is_visible_tonight) continue
+
+      // Calculate score (simplified - no progress, just visibility + priority)
+      const visScore = calculateVisibilityScore(visibility)
+      const score = visScore + (project.priority * 5) + 30 // Base score for urgency
+
+      const fullVisibility: VisibilityInfo = {
+        is_visible_tonight: visibility.is_visible_tonight,
+        current_altitude: visibility.current_altitude,
+        max_altitude: visibility.max_altitude,
+        transit_time: visibility.transit_time,
+        hours_above_min_altitude: visibility.hours_in_darkness,
+        hours_in_darkness: visibility.hours_in_darkness,
+        rise_time: null,
+        set_time: null,
+      }
+
+      wellPlacedProjects.push({
+        project_id: project.id,
+        project_name: project.name,
+        project_status: project.status,
+        primary_target_name: object.primary_name,
+        primary_target_id: object.id,
+        visibility: fullVisibility,
+        overall_progress: 0, // Not calculated in offline mode
+        recommended_filter: null, // Would need progress calculation
+        score,
+      })
+    }
+
+    // Sort by score and limit
+    wellPlacedProjects.sort((a, b) => b.score - a.score)
+    const limitedProjects = wellPlacedProjects.slice(0, limit)
+
+    return {
+      location_configured: true,
+      projects: limitedProjects,
+    }
+  },
 }
 
 // Catalogue API
@@ -761,9 +864,15 @@ export const offlineCatalogueApi = {
 
     const minAltitude = params?.min_altitude ?? 30
 
-    // First, get all objects matching filters (we need to filter after visibility calc)
-    let sql = 'SELECT * FROM objects WHERE ra IS NOT NULL AND dec IS NOT NULL'
-    const sqlParams: unknown[] = []
+    // Pre-filter by declination: objects can only reach altitude A if 90 - |lat - dec| >= A
+    // This means: dec >= lat - (90 - A) AND dec <= lat + (90 - A)
+    const decRange = 90 - minAltitude
+    const minDec = Math.max(-90, location.latitude - decRange)
+    const maxDec = Math.min(90, location.latitude + decRange)
+
+    // First, get all objects matching filters with declination pre-filter
+    let sql = 'SELECT * FROM objects WHERE ra IS NOT NULL AND dec IS NOT NULL AND dec >= ? AND dec <= ?'
+    const sqlParams: unknown[] = [minDec, maxDec]
 
     if (params?.object_type) {
       sql += ' AND object_type = ?'

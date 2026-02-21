@@ -16,6 +16,21 @@ type SortField = 'primary_name' | 'magnitude' | 'size_major' | 'constellation' |
 type WellPlacedSortField = 'primary_name' | 'magnitude' | 'constellation' | 'object_type' | 'max_altitude' | 'transit_time' | 'hours_in_darkness'
 type SortOrder = 'asc' | 'desc'
 
+// Custom hook for debouncing values
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => clearTimeout(timer)
+  }, [value, delay])
+
+  return debouncedValue
+}
+
 interface SortableHeaderProps {
   label: string
   field: string
@@ -54,6 +69,8 @@ export default function CataloguePage() {
   const [maxSize, setMaxSize] = useState('')
   const [visibleTonight, setVisibleTonight] = useState(false)
   const [minAltitude, setMinAltitude] = useState(30)
+  const debouncedMinAltitude = useDebounce(minAltitude, 300) // Debounce by 300ms
+  const isAltitudeDebouncing = minAltitude !== debouncedMinAltitude
   const [page, setPage] = useState(0)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [filtersExpanded, setFiltersExpanded] = useState(false)
@@ -65,7 +82,7 @@ export default function CataloguePage() {
   const [wellPlacedSortBy, setWellPlacedSortBy] = useState<WellPlacedSortField>('max_altitude')
   const [wellPlacedSortOrder, setWellPlacedSortOrder] = useState<SortOrder>('desc')
 
-  // Reset page when filters change
+  // Reset page when filters change (use debounced altitude)
   useEffect(() => {
     setPage(0)
   }, [
@@ -78,13 +95,14 @@ export default function CataloguePage() {
     minSize,
     maxSize,
     visibleTonight,
-    minAltitude,
+    debouncedMinAltitude,
     sortBy,
     sortOrder,
   ])
 
   // Query for well-placed objects (when visibleTonight is true)
-  const { data: wellPlacedData, isLoading: wellPlacedLoading } = useQuery({
+  // Uses debounced altitude to prevent excessive recalculations
+  const { data: wellPlacedData, isLoading: wellPlacedLoading, isFetching: wellPlacedFetching } = useQuery({
     queryKey: [
       'catalogueWellPlaced',
       pwa ? 'pwa' : 'online',
@@ -96,14 +114,14 @@ export default function CataloguePage() {
       maxMagnitude,
       minSize,
       maxSize,
-      minAltitude,
+      debouncedMinAltitude,
       page,
     ],
     queryFn: () =>
       catalogueApi.getWellPlaced({
         skip: page * pageSize,
         limit: pageSize,
-        min_altitude: minAltitude,
+        min_altitude: debouncedMinAltitude,
         catalog: catalogFilter || undefined,
         object_type: typeFilter || undefined,
         constellation: constellationFilter || undefined,
@@ -113,10 +131,13 @@ export default function CataloguePage() {
         min_size: minSize ? parseFloat(minSize) : undefined,
         max_size: maxSize ? parseFloat(maxSize) : undefined,
       }),
-    enabled: visibleTonight,
+    enabled: visibleTonight && !isAltitudeDebouncing,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
   })
+
+  // Show loading when debouncing or fetching
+  const isCalculatingVisibility = isAltitudeDebouncing || wellPlacedFetching
 
   // Query for regular catalogue (when visibleTonight is false)
   const { data: catalogueData, isLoading: catalogueLoading } = useQuery({
@@ -168,7 +189,7 @@ export default function CataloguePage() {
     queryFn: () => catalogueApi.getCatalogs(),
   })
 
-  const isLoading = visibleTonight ? wellPlacedLoading : catalogueLoading
+  const isLoading = visibleTonight ? (wellPlacedLoading || isCalculatingVisibility) : catalogueLoading
   const total = visibleTonight
     ? (wellPlacedData as WellPlacedObjectsResponse)?.total
     : catalogueData?.total
@@ -517,6 +538,9 @@ export default function CataloguePage() {
                 className="w-24 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-green-500"
               />
               <span className="text-sm text-gray-300 w-8">{minAltitude}°</span>
+              {isCalculatingVisibility && (
+                <span className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+              )}
             </div>
           )}
 
@@ -671,6 +695,9 @@ export default function CataloguePage() {
                   className="w-24 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-green-500"
                 />
                 <span className="text-sm text-gray-300 w-8">{minAltitude}°</span>
+                {isCalculatingVisibility && (
+                  <span className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                )}
               </div>
             )}
 

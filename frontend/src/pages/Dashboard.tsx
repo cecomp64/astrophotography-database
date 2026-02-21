@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { projectsApi as onlineProjectsApi, catalogueApi as onlineCatalogueApi, WellPlacedProject, WellPlacedObject } from '../api/client'
-import { useImagesApi, useObjectsApi, useCatalogueApi } from '../pwa/hooks/useApi'
+import { WellPlacedProject, WellPlacedObject } from '../api/client'
+import { useImagesApi, useObjectsApi, useCatalogueApi, useProjectsApi } from '../pwa/hooks/useApi'
 import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import SearchBar from '../components/SearchBar'
 import { WellPlacedCard } from '../components/ProjectCard'
@@ -11,6 +11,7 @@ export default function Dashboard() {
   const imagesApi = useImagesApi()
   const objectsApi = useObjectsApi()
   const catalogueApi = useCatalogueApi()
+  const projectsApi = useProjectsApi()
   const pwa = isPwaMode()
 
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -28,17 +29,17 @@ export default function Dashboard() {
     queryFn: () => catalogueApi.getCatalogs(),
   })
 
-  // Well-placed features not available in PWA mode (requires live location/time calculation)
+  // Well-placed projects work in both modes (uses offline astronomy calculations in PWA)
   const { data: wellPlacedProjects } = useQuery({
-    queryKey: ['wellPlacedProjects'],
-    queryFn: () => onlineProjectsApi.getWellPlaced(5),
-    enabled: !pwa,
+    queryKey: ['wellPlacedProjects', pwa ? 'pwa' : 'online'],
+    queryFn: () => projectsApi.getWellPlaced(5),
+    staleTime: 5 * 60 * 1000,
   })
 
+  // Well-placed objects work in both modes (uses offline astronomy calculations in PWA)
   const { data: wellPlacedObjects } = useQuery({
-    queryKey: ['wellPlacedObjects'],
-    queryFn: () => onlineCatalogueApi.getWellPlaced({ limit: 5, min_size: 10 }),
-    enabled: !pwa,
+    queryKey: ['wellPlacedObjects', pwa ? 'pwa' : 'online'],
+    queryFn: () => catalogueApi.getWellPlaced({ limit: 5, min_size: 10 }),
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   })
 
@@ -66,7 +67,7 @@ export default function Dashboard() {
             <div className="text-gray-400">Objects Imaged</div>
           </div>
           <div className="card">
-            <div className="text-3xl font-bold text-green-400">{stats.total_exposure_hours}</div>
+            <div className="text-3xl font-bold text-green-400">{stats.total_exposure_hours.toFixed(1)}</div>
             <div className="text-gray-400">Hours of Exposure</div>
           </div>
           <div className="card">
