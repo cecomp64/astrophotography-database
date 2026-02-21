@@ -57,7 +57,7 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: 'index-pwa.html',
+        index: 'index-pwa.html', // Outputs as index.html for GitHub Pages
       },
     },
   },
