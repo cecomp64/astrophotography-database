@@ -36,12 +36,60 @@ const log = (msg: string) => {
 };
 
 // --- Backend Management ---
-const startBackend = async () => {
+const ensureSSLCerts = async (pythonBin: string, backendDir: string, userDataPath: string): Promise<void> => {
   return new Promise<void>((resolve, reject) => {
+    const sslCertDir = path.join(userDataPath, "ssl");
+    const certPath = path.join(sslCertDir, "server.crt");
+    const keyPath = path.join(sslCertDir, "server.key");
+
+    // Check if certs already exist
+    if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+      log("SSL certificates already exist");
+      resolve();
+      return;
+    }
+
+    log("Generating SSL certificates...");
+
+    // Generate certs using Python
+    const script = `
+import sys
+sys.path.insert(0, '${backendDir.replace(/\\/g, '\\\\')}')
+import os
+os.environ['APP_USER_DATA'] = '${userDataPath.replace(/\\/g, '\\\\')}'
+from pathlib import Path
+from app.services.ssl_cert import ensure_ssl_certs
+ensure_ssl_certs(Path('${sslCertDir.replace(/\\/g, '\\\\')}'))
+print('SSL certificates generated successfully')
+`;
+
+    const certProcess = spawn(pythonBin, ["-c", script], {
+      cwd: backendDir,
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    });
+
+    certProcess.stdout?.on("data", (data) => log(`[SSL] ${data.toString()}`));
+    certProcess.stderr?.on("data", (data) => log(`[SSL] ${data.toString()}`));
+
+    certProcess.on("close", (code) => {
+      if (code === 0) {
+        log("SSL certificates ready");
+        resolve();
+      } else {
+        reject(new Error(`SSL cert generation failed with code ${code}`));
+      }
+    });
+
+    certProcess.on("error", reject);
+  });
+};
+
+const startBackend = async () => {
+  return new Promise<void>(async (resolve, reject) => {
     const pythonBin = getBinPath();
     const backendDir = getBackendRoot();
     const userDataPath = app.getPath("userData");
-    
+
     log(`Starting backend with: ${pythonBin} in ${backendDir}`);
     log(`User Data Path for SQLite: ${userDataPath}`);
 
@@ -55,12 +103,30 @@ const startBackend = async () => {
       }
     }
 
-    let args: string[] = [];
-    
+    // Ensure SSL certificates exist before starting server
     if (isDev) {
-      args = ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8833"];
+      try {
+        await ensureSSLCerts(pythonBin, backendDir, userDataPath);
+      } catch (e: any) {
+        log(`Warning: Could not generate SSL certs: ${e.message}`);
+        // Continue anyway, will try to generate on startup
+      }
+    }
+
+    let args: string[] = [];
+    const sslCertDir = path.join(userDataPath, "ssl");
+
+    if (isDev) {
+      // In dev, we run uvicorn directly with SSL enabled
+      args = [
+        "-m", "uvicorn", "app.main:app",
+        "--host", "0.0.0.0",  // Listen on all interfaces for PWA sync
+        "--port", "8833",
+        "--ssl-keyfile", path.join(sslCertDir, "server.key"),
+        "--ssl-certfile", path.join(sslCertDir, "server.crt"),
+      ];
     } else {
-      args = ["--port", "8833"]; 
+      args = ["--port", "8833", "--ssl"];  // Production: enable SSL with auto-generated certs
     }
 
     apiProcess = spawn(pythonBin, args, {
@@ -122,6 +188,18 @@ const createWindow = () => {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 };
+
+// Allow self-signed certificates for local backend HTTPS
+app.on("certificate-error", (event, webContents, url, error, certificate, callback) => {
+  // Only allow for localhost/127.0.0.1 connections to our backend
+  if (url.startsWith("https://localhost:") || url.startsWith("https://127.0.0.1:")) {
+    log(`Allowing self-signed certificate for: ${url}`);
+    event.preventDefault();
+    callback(true);
+  } else {
+    callback(false);
+  }
+});
 
 app.whenReady().then(async () => {
   try {

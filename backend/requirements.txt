@@ -26,4 +26,7 @@ Pillow>=10.0.0
 # Utilities
 python-dotenv==1.0.0
 
+# SSL certificate generation
+cryptography>=42.0.0
+
 pyinstaller

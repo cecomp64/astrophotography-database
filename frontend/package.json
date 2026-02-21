@@ -1,7 +1,7 @@
 {
   "name": "astrophotography-database",
   "private": true,
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "A database application for managing astrophotography images and observations",
   "author": {
     "name": "Carl Svensson",

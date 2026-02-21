@@ -14,7 +14,7 @@ import {
 import { loadDatabaseFromBuffer } from '../db/offline-db'
 import { useOfflineDb } from './OfflineDbContext'
 
-export type SyncStatus = 'idle' | 'checking' | 'downloading' | 'loading' | 'success' | 'error'
+export type SyncStatus = 'idle' | 'checking' | 'downloading' | 'loading' | 'success' | 'error' | 'cert_error'
 
 interface ExportMetadata {
   version: string
@@ -70,10 +70,14 @@ export function SyncProvider({ children }: SyncProviderProps) {
   }, [])
 
   const setServerUrl = async (url: string) => {
-    // Normalize URL
+    // Normalize URL - use HTTPS by default for self-signed cert
     let normalized = url.trim()
     if (normalized && !normalized.startsWith('http')) {
-      normalized = `http://${normalized}`
+      normalized = `https://${normalized}`
+    }
+    // Upgrade http to https
+    if (normalized.startsWith('http://')) {
+      normalized = normalized.replace('http://', 'https://')
     }
     // Remove trailing slash
     normalized = normalized.replace(/\/$/, '')
@@ -214,8 +218,24 @@ export function SyncProvider({ children }: SyncProviderProps) {
     } catch (err) {
       console.error('[SyncContext] Sync error:', err)
       const message = err instanceof Error ? err.message : 'Sync failed'
-      setError(message)
-      setStatus('error')
+
+      // Detect certificate errors - these manifest as network failures
+      // Common patterns: "Failed to fetch", "NetworkError", "Load failed", "SSL", "certificate"
+      const isCertError =
+        message.toLowerCase().includes('failed to fetch') ||
+        message.toLowerCase().includes('networkerror') ||
+        message.toLowerCase().includes('load failed') ||
+        message.toLowerCase().includes('ssl') ||
+        message.toLowerCase().includes('certificate') ||
+        message.toLowerCase().includes('cert')
+
+      if (isCertError) {
+        setError(`Certificate not trusted. Please visit the link below to accept the certificate, then try syncing again.`)
+        setStatus('cert_error')
+      } else {
+        setError(message)
+        setStatus('error')
+      }
       return false
     }
   }, [serverUrl, reloadDb])

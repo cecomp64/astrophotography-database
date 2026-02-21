@@ -20,6 +20,14 @@ hidden_imports = [
     'sqlalchemy.schema',
     'pydantic_settings',
     'pydantic.deprecated.json', # Often needed for Pydantic v2
+    # Cryptography for SSL cert generation
+    'cryptography',
+    'cryptography.x509',
+    'cryptography.hazmat.primitives',
+    'cryptography.hazmat.primitives.asymmetric',
+    'cryptography.hazmat.primitives.asymmetric.rsa',
+    'cryptography.hazmat.primitives.hashes',
+    'cryptography.hazmat.primitives.serialization',
 ]
 
 a = Analysis(

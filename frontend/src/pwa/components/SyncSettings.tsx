@@ -2,7 +2,7 @@
  * Sync settings component for PWA.
  * Allows users to configure server URL and trigger sync.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSync } from '../context/SyncContext'
 import { useOfflineDb } from '../context/OfflineDbContext'
 
@@ -18,13 +18,15 @@ export default function SyncSettings() {
   } = useSync()
   const { isReady, syncMetadata } = useOfflineDb()
   const [inputUrl, setInputUrl] = useState(serverUrl)
+  const hasInitialized = useRef(false)
 
-  // Update input when serverUrl is loaded from persistence
+  // Update input when serverUrl is loaded from persistence (only on initial load)
   useEffect(() => {
-    if (serverUrl && !inputUrl) {
+    if (serverUrl && !hasInitialized.current) {
       setInputUrl(serverUrl)
+      hasInitialized.current = true
     }
-  }, [serverUrl, inputUrl])
+  }, [serverUrl])
 
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputUrl(e.target.value)
@@ -43,10 +45,14 @@ export default function SyncSettings() {
   const handleSync = async () => {
     console.log('[SyncSettings] handleSync called, inputUrl:', inputUrl)
 
-    // Normalize URL like SyncContext does
+    // Normalize URL like SyncContext does - use HTTPS by default
     let normalizedUrl = inputUrl.trim()
     if (normalizedUrl && !normalizedUrl.startsWith('http')) {
-      normalizedUrl = `http://${normalizedUrl}`
+      normalizedUrl = `https://${normalizedUrl}`
+    }
+    // Upgrade http to https
+    if (normalizedUrl.startsWith('http://')) {
+      normalizedUrl = normalizedUrl.replace('http://', 'https://')
     }
     normalizedUrl = normalizedUrl.replace(/\/$/, '')
 
@@ -144,8 +150,28 @@ export default function SyncSettings() {
         </div>
       )}
 
-      {/* Error Message */}
-      {error && (
+      {/* Certificate Error - Special handling with link */}
+      {status === 'cert_error' && serverUrl && (
+        <div className="p-4 bg-yellow-900/50 border border-yellow-700 rounded-lg space-y-3">
+          <p className="text-yellow-200">
+            {error}
+          </p>
+          <a
+            href={`${serverUrl}/api/health`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+          >
+            Open Health Check to Accept Certificate →
+          </a>
+          <p className="text-sm text-yellow-300/70">
+            After accepting the certificate in your browser, come back here and tap Sync again.
+          </p>
+        </div>
+      )}
+
+      {/* Error Message (non-cert errors) */}
+      {error && status === 'error' && (
         <div className="p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200">
           {error}
         </div>
@@ -211,9 +237,10 @@ export default function SyncSettings() {
         </p>
         <ol className="list-decimal list-inside space-y-1 ml-2">
           <li>Open the Astrophotography Database app on your computer</li>
-          <li>Make sure both devices are on the same WiFi network</li>
-          <li>Find your computer&apos;s local IP address (e.g., 192.168.1.x)</li>
+          <li>Make sure both devices are on the same network (WiFi or Tailscale)</li>
+          <li>Find your computer&apos;s IP address (e.g., 192.168.1.x or Tailscale IP)</li>
           <li>Enter the IP with port 8833 (e.g., 192.168.1.100:8833)</li>
+          <li>On first sync, you&apos;ll need to accept the self-signed certificate</li>
         </ol>
       </div>
     </div>
