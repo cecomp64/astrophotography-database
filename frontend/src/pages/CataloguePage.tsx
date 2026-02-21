@@ -68,8 +68,8 @@ export default function CataloguePage() {
   const [minSize, setMinSize] = useState('')
   const [maxSize, setMaxSize] = useState('')
   const [visibleTonight, setVisibleTonight] = useState(false)
-  const [minAltitude, setMinAltitude] = useState(30)
-  const debouncedMinAltitude = useDebounce(minAltitude, 300) // Debounce by 300ms
+  const [minAltitude, setMinAltitude] = useState('30')
+  const debouncedMinAltitude = useDebounce(minAltitude, 2000) // Debounce by 2 seconds
   const isAltitudeDebouncing = minAltitude !== debouncedMinAltitude
   const [page, setPage] = useState(0)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -121,7 +121,7 @@ export default function CataloguePage() {
       catalogueApi.getWellPlaced({
         skip: page * pageSize,
         limit: pageSize,
-        min_altitude: debouncedMinAltitude,
+        min_altitude: debouncedMinAltitude ? parseInt(debouncedMinAltitude, 10) : 30,
         catalog: catalogFilter || undefined,
         object_type: typeFilter || undefined,
         constellation: constellationFilter || undefined,
@@ -529,15 +529,15 @@ export default function CataloguePage() {
                 Min altitude:
               </label>
               <input
-                type="range"
+                type="number"
                 min={0}
-                max={60}
-                step={5}
+                max={90}
                 value={minAltitude}
-                onChange={(e) => setMinAltitude(Number(e.target.value))}
-                className="w-24 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-green-500"
+                onChange={(e) => setMinAltitude(e.target.value)}
+                className="input w-16 text-center"
+                placeholder="30"
               />
-              <span className="text-sm text-gray-300 w-8">{minAltitude}°</span>
+              <span className="text-sm text-gray-400">°</span>
               {isCalculatingVisibility && (
                 <span className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
               )}
@@ -686,15 +686,15 @@ export default function CataloguePage() {
                   Min altitude:
                 </label>
                 <input
-                  type="range"
+                  type="number"
                   min={0}
-                  max={60}
-                  step={5}
+                  max={90}
                   value={minAltitude}
-                  onChange={(e) => setMinAltitude(Number(e.target.value))}
-                  className="w-24 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-green-500"
+                  onChange={(e) => setMinAltitude(e.target.value)}
+                  className="input w-16 text-center"
+                  placeholder="30"
                 />
-                <span className="text-sm text-gray-300 w-8">{minAltitude}°</span>
+                <span className="text-sm text-gray-400">°</span>
                 {isCalculatingVisibility && (
                   <span className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
                 )}
