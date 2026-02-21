@@ -13,6 +13,7 @@ import {
 } from '../db/persistence'
 import { loadDatabaseFromBuffer, validateDatabase } from '../db/offline-db'
 import { useOfflineDb } from './OfflineDbContext'
+import { storeLocation, ObserverLocation } from '../services/astronomy'
 
 export type SyncStatus = 'idle' | 'checking' | 'downloading' | 'loading' | 'success' | 'error' | 'cert_error'
 
@@ -225,6 +226,26 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
       // Reload the database context
       await reloadDb()
+
+      // Fetch and store observer location for offline altitude calculations
+      try {
+        const configResponse = await fetch(`${syncUrl}/api/configuration/location`)
+        if (configResponse.ok) {
+          const locationData = await configResponse.json()
+          if (locationData.latitude && locationData.longitude && locationData.timezone) {
+            const observerLocation: ObserverLocation = {
+              latitude: locationData.latitude,
+              longitude: locationData.longitude,
+              timezone: locationData.timezone,
+            }
+            storeLocation(observerLocation)
+            console.log('[SyncContext] Stored observer location:', observerLocation)
+          }
+        }
+      } catch (locErr) {
+        // Location sync is optional - don't fail the whole sync
+        console.warn('[SyncContext] Failed to sync observer location:', locErr)
+      }
 
       setStatus('success')
       setProgress(100)

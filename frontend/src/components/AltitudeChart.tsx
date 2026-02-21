@@ -12,6 +12,9 @@ import {
   Bar,
 } from 'recharts'
 import { objectsApi, AltitudeDataPoint, TwilightTimes } from '../api/client'
+import { isPwaMode } from '../pwa/hooks/usePwaMode'
+import { useObjectsApi } from '../pwa/hooks/useApi'
+import { calculateAltitudeData, getStoredLocation } from '../pwa/services/astronomy'
 
 interface AltitudeChartProps {
   objectId: number
@@ -89,10 +92,53 @@ interface ChartDataPoint extends AltitudeDataPoint {
 }
 
 export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
-  const { data, isLoading, error } = useQuery({
+  const pwa = isPwaMode()
+  const objectsApiHook = useObjectsApi()
+  const storedLocation = getStoredLocation()
+
+  // Fetch object details to get RA/Dec for PWA mode calculations
+  const { data: objectDetails } = useQuery({
+    queryKey: ['objectDetails', objectId],
+    queryFn: () => objectsApiHook.get(objectId),
+    staleTime: 60 * 60 * 1000, // Cache for 1 hour - coordinates don't change
+    enabled: pwa, // Only needed in PWA mode
+  })
+
+  // Server-side altitude data (desktop mode)
+  const { data: serverData, isLoading: isLoadingServer, error: serverError } = useQuery({
     queryKey: ['objectAltitude', objectId, date],
     queryFn: () => objectsApi.getAltitude(objectId, date),
+    enabled: !pwa,
   })
+
+  // Client-side altitude calculation (PWA mode)
+  const { data: clientData, isLoading: isLoadingClient, error: clientError } = useQuery({
+    queryKey: ['objectAltitudePwa', objectId, date, objectDetails?.ra, objectDetails?.dec],
+    queryFn: () => {
+      if (!storedLocation || !objectDetails?.ra || !objectDetails?.dec) {
+        return null
+      }
+      return calculateAltitudeData(objectDetails.ra, objectDetails.dec, storedLocation, date)
+    },
+    staleTime: 5 * 60 * 1000,
+    enabled: pwa && !!objectDetails?.ra && !!objectDetails?.dec && !!storedLocation,
+  })
+
+  const data = pwa ? clientData : serverData
+  const isLoading = pwa ? isLoadingClient : isLoadingServer
+  const error = pwa ? clientError : serverError
+
+  // In PWA mode without location configured
+  if (pwa && !storedLocation) {
+    return (
+      <div className="h-64 flex flex-col items-center justify-center text-gray-400">
+        <p>Location not configured for offline mode</p>
+        <p className="text-sm text-gray-500 mt-2">
+          Configure your location on the desktop app, then re-sync
+        </p>
+      </div>
+    )
+  }
 
   if (isLoading) {
     return (

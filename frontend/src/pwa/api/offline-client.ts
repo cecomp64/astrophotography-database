@@ -545,9 +545,13 @@ export const offlineCatalogueApi = {
     min_size?: number
     max_size?: number
     search?: string
+    sort_by?: 'primary_name' | 'magnitude' | 'size_major' | 'constellation' | 'object_type' | 'ra' | 'dec'
+    sort_order?: 'asc' | 'desc'
   }): Promise<CatalogueObjectsResponse> => {
     const skip = params?.skip ?? 0
     const limit = params?.limit ?? 50
+    const sortBy = params?.sort_by ?? 'primary_name'
+    const sortOrder = params?.sort_order ?? 'asc'
 
     let countSql = 'SELECT COUNT(*) FROM objects WHERE 1=1'
     let sql = 'SELECT * FROM objects WHERE 1=1'
@@ -596,7 +600,11 @@ export const offlineCatalogueApi = {
 
     const total = queryScalar<number>(countSql, countParams) ?? 0
 
-    sql += ' ORDER BY primary_name LIMIT ? OFFSET ?'
+    // Build ORDER BY clause with the sort parameters
+    const validSortColumns = ['primary_name', 'magnitude', 'size_major', 'constellation', 'object_type', 'ra', 'dec']
+    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'primary_name'
+    const sortDir = sortOrder === 'desc' ? 'DESC' : 'ASC'
+    sql += ` ORDER BY ${sortColumn} ${sortDir} NULLS LAST LIMIT ? OFFSET ?`
     sqlParams.push(limit, skip)
 
     const objects = query<DbObject>(sql, sqlParams)
