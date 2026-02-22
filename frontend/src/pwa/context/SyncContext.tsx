@@ -79,9 +79,18 @@ interface SyncContextValue {
 
 const SyncContext = createContext<SyncContextValue | null>(null)
 
+// Progress allocation for smooth overall progress:
+// 0-60%: Database download
+// 60-75%: Database loading/validation
+// 75-100%: Showcase image sync
+const PROGRESS_DB_DOWNLOAD_END = 60
+const PROGRESS_DB_LOADING_END = 75
+const PROGRESS_IMAGES_END = 100
+
 /**
  * Sync showcase images from the server.
  * Downloads images that are new or changed, respecting the size cap.
+ * Progress is reported as 0-100 within the image sync phase.
  */
 async function syncShowcaseImages(
   serverUrl: string,
@@ -107,6 +116,7 @@ async function syncShowcaseImages(
       syncedSizeBytes: 0,
       skippedDueToLimit: 0,
     })
+    setProgress(100)
     return
   }
 
@@ -131,20 +141,39 @@ async function syncShowcaseImages(
   const alreadySyncedCount = metadata.showcases.length - toDownload.length
   console.log('[SyncContext] Already synced:', alreadySyncedCount, ', need to download:', toDownload.length)
 
+  // If all images are already synced, report full progress immediately
+  if (toDownload.length === 0) {
+    setProgress(100)
+    setImageStats({
+      totalCount: metadata.total_count,
+      syncedCount: alreadySyncedCount,
+      totalSizeBytes: metadata.total_size_bytes,
+      syncedSizeBytes: alreadySyncedSize,
+      skippedDueToLimit: 0,
+    })
+    return
+  }
+
   // Sort by size (smallest first) to maximize number of images within limit
   toDownload.sort((a, b) => a.size_bytes - b.size_bytes)
 
   // Download images, respecting size cap
+  // Track progress by bytes rather than count for smoother updates
   let syncedCount = alreadySyncedCount
   let syncedSizeBytes = alreadySyncedSize
   let skippedDueToLimit = 0
-  let downloadedCount = 0
+  let downloadedBytes = 0
+  const totalBytesToDownload = toDownload.reduce((sum, s) => sum + s.size_bytes, 0)
 
   for (const showcase of toDownload) {
     // Check if adding this image would exceed the limit
     if (syncedSizeBytes + showcase.size_bytes > SHOWCASE_CACHE_MAX_BYTES) {
       console.log('[SyncContext] Skipping showcase', showcase.object_id, '- would exceed cache limit')
       skippedDueToLimit++
+      // Still count as "processed" for progress
+      downloadedBytes += showcase.size_bytes
+      const progressPct = Math.round((downloadedBytes / totalBytesToDownload) * 100)
+      setProgress(progressPct)
       continue
     }
 
@@ -152,6 +181,9 @@ async function syncShowcaseImages(
       const imgResponse = await fetch(`${serverUrl}/api/export/showcases/${showcase.object_id}`)
       if (!imgResponse.ok) {
         console.warn('[SyncContext] Failed to download showcase', showcase.object_id)
+        downloadedBytes += showcase.size_bytes
+        const progressPct = Math.round((downloadedBytes / totalBytesToDownload) * 100)
+        setProgress(progressPct)
         continue
       }
 
@@ -160,13 +192,16 @@ async function syncShowcaseImages(
 
       syncedCount++
       syncedSizeBytes += blob.size
-      downloadedCount++
+      downloadedBytes += blob.size
 
-      // Update progress
-      const progressPct = Math.round((downloadedCount / toDownload.length) * 100)
+      // Update progress based on bytes processed
+      const progressPct = Math.round((downloadedBytes / totalBytesToDownload) * 100)
       setProgress(progressPct)
     } catch (err) {
       console.warn('[SyncContext] Error downloading showcase', showcase.object_id, err)
+      downloadedBytes += showcase.size_bytes
+      const progressPct = Math.round((downloadedBytes / totalBytesToDownload) * 100)
+      setProgress(progressPct)
     }
   }
 
@@ -179,6 +214,7 @@ async function syncShowcaseImages(
   }
 
   setImageStats(stats)
+  setProgress(100)
   console.log('[SyncContext] Showcase sync complete:', stats)
 }
 
@@ -320,7 +356,9 @@ export function SyncProvider({ children }: SyncProviderProps) {
         receivedBytes += value.length
 
         if (totalBytes > 0) {
-          setProgress(Math.round((receivedBytes / totalBytes) * 100))
+          // Scale download progress to 0-60% of overall progress
+          const downloadPct = receivedBytes / totalBytes
+          setProgress(Math.round(downloadPct * PROGRESS_DB_DOWNLOAD_END))
         }
       }
 
@@ -334,6 +372,7 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
       // Decompress gzip data
       setStatus('loading')
+      setProgress(PROGRESS_DB_DOWNLOAD_END) // 60%
       const decompressedStream = new Response(gzippedData).body?.pipeThrough(
         new DecompressionStream('gzip')
       )
@@ -344,6 +383,7 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
       const decompressedResponse = new Response(decompressedStream)
       const dbBuffer = await decompressedResponse.arrayBuffer()
+      setProgress(Math.round(PROGRESS_DB_DOWNLOAD_END + (PROGRESS_DB_LOADING_END - PROGRESS_DB_DOWNLOAD_END) * 0.3)) // 65%
 
       console.log('[SyncContext] Decompressed database size:', dbBuffer.byteLength, 'bytes')
 
@@ -353,6 +393,7 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
       // Load into sql.js
       await loadDatabaseFromBuffer(dbBuffer)
+      setProgress(Math.round(PROGRESS_DB_DOWNLOAD_END + (PROGRESS_DB_LOADING_END - PROGRESS_DB_DOWNLOAD_END) * 0.6)) // 69%
 
       // Validate the database has data
       const validation = validateDatabase()
@@ -372,9 +413,11 @@ export function SyncProvider({ children }: SyncProviderProps) {
 
       await saveDatabase(dbBuffer, syncMetadata)
       setLastSync(syncMetadata)
+      setProgress(Math.round(PROGRESS_DB_DOWNLOAD_END + (PROGRESS_DB_LOADING_END - PROGRESS_DB_DOWNLOAD_END) * 0.8)) // 72%
 
       // Reload the database context
       await reloadDb()
+      setProgress(PROGRESS_DB_LOADING_END) // 75%
 
       // Fetch and store observer location for offline altitude calculations
       try {
@@ -399,15 +442,19 @@ export function SyncProvider({ children }: SyncProviderProps) {
       // Sync showcase images
       try {
         setStatus('syncing_images')
-        setProgress(0)
-        await syncShowcaseImages(syncUrl, setProgress, setImageStats)
+        // Scale image sync progress (0-100) to overall progress (75-100)
+        const setImageProgress = (imgPct: number) => {
+          const scaled = PROGRESS_DB_LOADING_END + (imgPct / 100) * (PROGRESS_IMAGES_END - PROGRESS_DB_LOADING_END)
+          setProgress(Math.round(scaled))
+        }
+        await syncShowcaseImages(syncUrl, setImageProgress, setImageStats)
       } catch (imgErr) {
         // Image sync is optional - don't fail the whole sync
         console.warn('[SyncContext] Failed to sync showcase images:', imgErr)
       }
 
       setStatus('success')
-      setProgress(100)
+      setProgress(PROGRESS_IMAGES_END)
       console.log('[SyncContext] Sync complete. Row counts:', validation.tables)
       return true
     } catch (err) {
