@@ -83,9 +83,9 @@ export default function ObjectDetailPage() {
   return (
     <div className="space-y-6">
       <div className="card">
-        <div className="space-y-4">
+        <div className="flex flex-col md:flex-row md:gap-6">
           {/* Title and stats */}
-          <div className="min-w-0 overflow-hidden">
+          <div className="min-w-0 overflow-hidden flex-1">
             <h1 className="text-2xl sm:text-3xl font-bold mb-1 break-words">{object.primary_name}</h1>
             {(object.object_type || formatSize(object.size_major, object.size_minor)) && (
               <p className="text-gray-400 mb-4 break-words">
@@ -146,15 +146,17 @@ export default function ObjectDetailPage() {
           </div>
 
           {/* Showcase image */}
-          <ShowcaseImage
-            objectId={object.id}
-            objectName={object.primary_name}
-            ra={object.ra}
-            dec={object.dec}
-            size="responsive"
-            className="mx-auto sm:mx-0"
-            hideEmptyOnMobile
-          />
+          <div className="mt-4 md:mt-0 md:flex-shrink-0">
+            <ShowcaseImage
+              objectId={object.id}
+              objectName={object.primary_name}
+              ra={object.ra}
+              dec={object.dec}
+              size="responsive"
+              className="mx-auto md:mx-0"
+              hideEmptyOnMobile
+            />
+          </div>
         </div>
 
         {/* Collapsible Showcase Manager - hidden in PWA mode */}

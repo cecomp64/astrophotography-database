@@ -131,7 +131,7 @@ function calculateProjectProgress(projectId: number): ProjectProgress | null {
   let totalExposureSeconds = 0
 
   for (const img of images) {
-    const filter = img.filter_name ?? 'Unknown'
+    const filter = img.filter_name ?? 'No Filter'
     const exposure = img.exposure_time ?? 0
     actualExposure[filter] = (actualExposure[filter] ?? 0) + exposure
     totalFrames++
@@ -216,7 +216,7 @@ function calculateTargetProgress(projectId: number, target: DbProjectTarget): Pr
   let totalExposureSeconds = 0
 
   for (const img of images) {
-    const filter = img.filter_name ?? 'Unknown'
+    const filter = img.filter_name ?? 'No Filter'
     const exposure = img.exposure_time ?? 0
     // Only count filters that are in the exposure goals
     if (filter in exposureGoals || Object.keys(exposureGoals).some(g => g.toLowerCase() === filter.toLowerCase())) {

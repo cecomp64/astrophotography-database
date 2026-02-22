@@ -80,11 +80,11 @@ export default function ShowcaseImage({
     sm: 'w-16 h-16',
     md: 'w-32 h-32',
     lg: 'w-48 h-48',
-    responsive: 'w-full sm:w-48 aspect-square sm:h-48',
+    responsive: 'w-full md:w-48 aspect-square md:h-48',
   }
 
   // Classes to hide empty states on mobile
-  const emptyHideClass = hideEmptyOnMobile ? 'hidden sm:flex' : 'flex'
+  const emptyHideClass = hideEmptyOnMobile ? 'hidden md:flex' : 'flex'
 
   const hasCoordinates = ra !== null && dec !== null
 

@@ -365,9 +365,9 @@ export default function ProjectDetailPage() {
   const [showEditForm, setShowEditForm] = useState(false)
   const [showAddTarget, setShowAddTarget] = useState(false)
   const [targetSearch, setTargetSearch] = useState('')
-  const [selectedTargetId, setSelectedTargetId] = useState<number | null>(null)
   const [editingTarget, setEditingTarget] = useState<ProjectTarget | null>(null)
   const [linkingTarget, setLinkingTarget] = useState<ProjectTarget | null>(null)
+  const [removingTargetId, setRemovingTargetId] = useState<number | null>(null)
 
   const { data: project, isLoading } = useQuery({
     queryKey: ['project', projectId],
@@ -547,9 +547,9 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Targets */}
+      {/* Targets Header */}
       <div className="card">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex justify-between items-center">
           <h2 className="text-xl font-semibold">Targets</h2>
           {!pwa && (
             <button
@@ -561,118 +561,8 @@ export default function ProjectDetailPage() {
           )}
         </div>
 
-        {project.targets.length > 0 ? (
-          <div className="space-y-3">
-            {project.targets.map((target) => (
-              <div
-                key={target.id}
-                className="p-3 bg-space-700 rounded-lg"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Link
-                      to={`/objects/${target.object_id}`}
-                      className="font-medium hover:text-blue-400"
-                    >
-                      {target.object_name}
-                    </Link>
-                    {target.is_primary && (
-                      <span className="badge badge-green text-xs">Primary</span>
-                    )}
-                    {target.object_type && (
-                      <span className="text-sm text-gray-400">{target.object_type}</span>
-                    )}
-                    {target.constellation && (
-                      <span className="text-sm text-gray-500">{target.constellation}</span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                    {!pwa && (
-                      <button
-                        onClick={() => setEditingTarget(target)}
-                        className="text-blue-400 hover:text-blue-300"
-                      >
-                        Edit
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setSelectedTargetId(target.object_id)}
-                      className="text-blue-400 hover:text-blue-300"
-                    >
-                      Chart
-                    </button>
-                    {!pwa && (
-                      <>
-                        <button
-                          onClick={() => setLinkingTarget(target)}
-                          className="text-blue-400 hover:text-blue-300"
-                        >
-                          Link
-                        </button>
-                        <button
-                          onClick={() => removeTargetMutation.mutate(target.object_id)}
-                          className="text-red-400 hover:text-red-300"
-                        >
-                          Remove
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Per-target exposure progress */}
-                {target.progress && Object.keys(target.progress.exposure_goals).length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {Object.entries(target.progress.exposure_goals).map(([filter, goalSeconds]) => {
-                      const actualSeconds = target.progress!.actual_exposure[filter] || 0
-                      const percent = target.progress!.progress_percent[filter] || 0
-                      return (
-                        <div key={filter} className="space-y-1">
-                          <div className="flex justify-between text-xs">
-                            <span className="font-medium">{filter}</span>
-                            <span className="text-gray-400">
-                              {(actualSeconds / 3600).toFixed(1)}h / {(goalSeconds / 3600).toFixed(1)}h ({percent.toFixed(0)}%)
-                            </span>
-                          </div>
-                          <div className="h-1.5 bg-space-600 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${
-                                percent >= 100 ? 'bg-green-500' : 'bg-blue-500'
-                              }`}
-                              style={{ width: `${Math.min(percent, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      )
-                    })}
-                    <div className="text-xs text-gray-500 pt-1">
-                      {target.progress.total_frames} frames &bull; {(target.progress.total_exposure_seconds / 3600).toFixed(1)}h total &bull; {target.progress.overall_progress.toFixed(0)}% complete
-                    </div>
-                  </div>
-                )}
-
-                {/* Show goals without progress if no images yet */}
-                {(!target.progress || Object.keys(target.progress.exposure_goals).length === 0) &&
-                  target.exposure_goals && Object.keys(target.exposure_goals).length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {Object.entries(target.exposure_goals).map(([filter, seconds]) => (
-                      <span key={filter} className="text-xs bg-space-600 px-2 py-1 rounded">
-                        {filter}: {(seconds / 3600).toFixed(1)}h goal
-                      </span>
-                    ))}
-                    <span className="text-xs text-gray-500">No images yet</span>
-                  </div>
-                )}
-
-                {/* Per-target notes */}
-                {target.notes && (
-                  <p className="mt-2 text-sm text-gray-400 italic">{target.notes}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-gray-500">No targets added yet</p>
+        {project.targets.length === 0 && (
+          <p className="text-gray-500 mt-4">No targets added yet</p>
         )}
 
         {/* Add Target Search */}
@@ -718,27 +608,117 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* Altitude Chart */}
-      {selectedTargetId && (
-        <div className="card px-2 sm:px-4">
-          <div className="flex justify-between items-center mb-4 px-2 sm:px-0">
-            <h2 className="text-xl font-semibold">
-              Altitude Chart - {project.targets.find((t) => t.object_id === selectedTargetId)?.object_name}
-            </h2>
-            <button
-              onClick={() => setSelectedTargetId(null)}
-              className="text-gray-400 hover:text-white"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+      {/* Individual Target Cards */}
+      {project.targets.map((target) => (
+        <div key={target.id} className="card">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to={`/objects/${target.object_id}`}
+                className="text-lg font-medium hover:text-blue-400"
+              >
+                {target.object_name}
+              </Link>
+              {target.is_primary && (
+                <span className="badge badge-green text-xs">Primary</span>
+              )}
+              {target.object_type && (
+                <span className="text-sm text-gray-400">{target.object_type}</span>
+              )}
+              {target.constellation && (
+                <span className="text-sm text-gray-500">{target.constellation}</span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              {!pwa && (
+                <>
+                  <button
+                    onClick={() => setEditingTarget(target)}
+                    className="text-blue-400 hover:text-blue-300"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => setLinkingTarget(target)}
+                    className="text-blue-400 hover:text-blue-300"
+                  >
+                    Link Images
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRemovingTargetId(target.object_id)
+                      removeTargetMutation.mutate(target.object_id, {
+                        onSettled: () => setRemovingTargetId(null),
+                      })
+                    }}
+                    disabled={removingTargetId === target.object_id}
+                    className="text-red-400 hover:text-red-300 disabled:opacity-50"
+                  >
+                    {removingTargetId === target.object_id ? 'Removing...' : 'Remove'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="-mx-2 sm:mx-0">
-            <AltitudeChart objectId={selectedTargetId} />
+
+          {/* Per-target exposure progress */}
+          {target.progress && Object.keys(target.progress.exposure_goals).length > 0 && (
+            <div className="mb-4 space-y-2">
+              {Object.entries(target.progress.exposure_goals).map(([filter, goalSeconds]) => {
+                const actualSeconds = target.progress!.actual_exposure[filter] || 0
+                const percent = target.progress!.progress_percent[filter] || 0
+                return (
+                  <div key={filter} className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="font-medium">{filter}</span>
+                      <span className="text-gray-400">
+                        {(actualSeconds / 3600).toFixed(1)}h / {(goalSeconds / 3600).toFixed(1)}h ({percent.toFixed(0)}%)
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-space-600 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          percent >= 100 ? 'bg-green-500' : 'bg-blue-500'
+                        }`}
+                        style={{ width: `${Math.min(percent, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+              <div className="text-xs text-gray-500 pt-1">
+                {target.progress.total_frames} frames &bull; {(target.progress.total_exposure_seconds / 3600).toFixed(1)}h total &bull; {target.progress.overall_progress.toFixed(0)}% complete
+              </div>
+            </div>
+          )}
+
+          {/* Show goals without progress if no images yet */}
+          {(!target.progress || Object.keys(target.progress.exposure_goals).length === 0) &&
+            target.exposure_goals && Object.keys(target.exposure_goals).length > 0 && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {Object.entries(target.exposure_goals).map(([filter, seconds]) => (
+                <span key={filter} className="text-xs bg-space-600 px-2 py-1 rounded">
+                  {filter}: {(seconds / 3600).toFixed(1)}h goal
+                </span>
+              ))}
+              <span className="text-xs text-gray-500">No images yet</span>
+            </div>
+          )}
+
+          {/* Per-target notes */}
+          {target.notes && (
+            <p className="mb-4 text-sm text-gray-400 italic">{target.notes}</p>
+          )}
+
+          {/* Altitude Chart */}
+          <div className="pt-4 border-t border-space-600">
+            <h3 className="text-sm font-medium text-gray-400 mb-2">Altitude Tonight</h3>
+            <div className="-mx-4 sm:mx-0">
+              <AltitudeChart objectId={target.object_id} />
+            </div>
           </div>
         </div>
-      )}
+      ))}
 
       {/* Images */}
       <div className="card">
