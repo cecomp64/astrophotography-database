@@ -278,7 +278,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm px-4 sm:px-0">
         {data.transit_time && (
           <div>
             <span className="text-gray-400">Transit: </span>
@@ -306,7 +306,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
 
       {/* Twilight times */}
       {data.twilight && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500 px-4 sm:px-0">
           {data.twilight.astronomical_dusk && (
             <div>
               <span>Astro Dark: </span>
@@ -402,7 +402,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
 
       {/* Twilight legend */}
       {data.twilight && (
-        <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
+        <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs px-4 sm:px-0">
           {Object.entries(TWILIGHT_PHASES).map(([key, phase]) => (
             <div key={key} className="flex items-center gap-1">
               <div
@@ -418,7 +418,7 @@ export default function AltitudeChart({ objectId, date }: AltitudeChartProps) {
         </div>
       )}
 
-      <p className="text-xs text-gray-500 text-center">
+      <p className="text-xs text-gray-500 text-center px-4 sm:px-0">
         Date: {data.date} | Times in {data.timezone} | 24-hour period centered on midnight
       </p>
     </div>

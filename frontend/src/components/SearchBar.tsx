@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { objectsApi, AstroObject } from '../api/client'
+import { AstroObject } from '../api/client'
+import { useObjectsApi } from '../pwa/hooks/useApi'
 
 interface SearchBarProps {
   placeholder?: string
@@ -11,6 +12,7 @@ interface SearchBarProps {
 export default function SearchBar({ placeholder = 'Search objects...', onSelect }: SearchBarProps) {
   const [query, setQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
+  const objectsApi = useObjectsApi()
 
   const { data: results, isLoading } = useQuery({
     queryKey: ['search', query],
