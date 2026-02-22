@@ -424,6 +424,43 @@ export interface MiniAltitudeData {
   hours_in_darkness: number | null
 }
 
+// Best viewing periods types
+export interface MonthlyViewingScore {
+  month: number
+  month_name: string
+  score: number
+  avg_hours_in_darkness: number
+  avg_max_altitude: number
+  is_peak_month: boolean
+}
+
+export interface UpcomingBestDate {
+  date: string
+  day_of_week: string
+  score: number
+  hours_in_darkness: number
+  max_altitude: number
+  transit_time: string
+}
+
+export interface PeakSeason {
+  start_month: number
+  end_month: number
+  start_month_name: string
+  end_month_name: string
+  description: string
+}
+
+export interface BestViewingResponse {
+  location_configured: boolean
+  object_name: string
+  monthly_summary: MonthlyViewingScore[]
+  peak_season: PeakSeason | null
+  best_upcoming_dates: UpcomingBestDate[]
+  best_month: string | null
+  next_good_date: string | null
+}
+
 export interface FilterStats {
   by_filter: Record<string, number>
   total_images: number
@@ -486,6 +523,12 @@ export const objectsApi = {
 
   getFilterStats: async (id: number) => {
     const response = await apiClient.get<FilterStats>(`/objects/${id}/filter-stats`)
+    return response.data
+  },
+
+  getBestViewing: async (id: number, minAltitude?: number) => {
+    const params = minAltitude !== undefined ? { min_altitude: minAltitude } : {}
+    const response = await apiClient.get<BestViewingResponse>(`/objects/${id}/best-viewing`, { params })
     return response.data
   },
 

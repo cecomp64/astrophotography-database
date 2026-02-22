@@ -5,6 +5,7 @@ import { useObjectsApi, useImagesApi } from '../pwa/hooks/useApi'
 import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import ImageTable from '../components/ImageTable'
 import AltitudeChart from '../components/AltitudeChart'
+import BestViewingChart from '../components/BestViewingChart'
 import ShowcaseImage from '../components/ShowcaseImage'
 import ShowcaseManager from '../components/ShowcaseManager'
 import { formatRA, formatDec } from '../utils/coordinates'
@@ -185,6 +186,15 @@ export default function ObjectDetailPage() {
           <h2 className="text-xl font-semibold mb-4 px-2 sm:px-0">Altitude Tonight</h2>
           <div className="-mx-2 sm:mx-0">
             <AltitudeChart objectId={objectId} />
+          </div>
+        </div>
+      )}
+
+      {object.ra !== null && object.dec !== null && (
+        <div className="card px-2 sm:px-4">
+          <h2 className="text-xl font-semibold mb-4 px-2 sm:px-0">Best Viewing Times</h2>
+          <div className="-mx-2 sm:mx-0">
+            <BestViewingChart objectId={objectId} />
           </div>
         </div>
       )}

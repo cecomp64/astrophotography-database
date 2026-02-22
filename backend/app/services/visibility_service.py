@@ -12,6 +12,7 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from app.models.configuration import Configuration
+from app.models.best_viewing_cache import BestViewingCache
 
 
 # Horizon angles for different twilight types
@@ -31,6 +32,7 @@ class VisibilityService:
         self._timezone: ZoneInfo = ZoneInfo("UTC")
         self._tz_name: str = "UTC"
         self._location_configured: bool = False
+        self._location_id: Optional[str] = None
         self._load_location()
 
     def _load_location(self) -> None:
@@ -54,6 +56,7 @@ class VisibilityService:
                         longitude = loc.get("longitude")
                         elevation = loc.get("elevation", 0)
                         self._tz_name = loc.get("timezone", "UTC")
+                        self._location_id = active_id
                         break
 
         # Fall back to legacy config
@@ -65,6 +68,7 @@ class VisibilityService:
                 latitude = legacy_config.value.get("latitude")
                 longitude = legacy_config.value.get("longitude")
                 elevation = legacy_config.value.get("elevation", 0)
+                self._location_id = "legacy"
 
             timezone_config = self.db.query(Configuration).filter(
                 Configuration.key == "timezone"
@@ -94,6 +98,10 @@ class VisibilityService:
     @property
     def timezone_name(self) -> str:
         return self._tz_name
+
+    @property
+    def location_id(self) -> Optional[str]:
+        return self._location_id
 
     def _get_observer(self) -> Optional[Observer]:
         """Get an astroplan Observer for the configured location."""
@@ -276,6 +284,7 @@ class VisibilityService:
 
         # Calculate hours above min altitude DURING astronomical darkness
         hours_in_darkness = 0.0
+        max_altitude_in_darkness = 0.0
         if twilight and '_astro_dusk_time' in twilight and '_astro_dawn_time' in twilight:
             astro_dusk = twilight['_astro_dusk_time']
             astro_dawn = twilight['_astro_dawn_time']
@@ -287,6 +296,11 @@ class VisibilityService:
             visible_in_dark = above_min & is_dark
             hours_in_darkness = np.sum(visible_in_dark) * (24.0 / 145.0)
 
+            # Calculate max altitude during darkness
+            dark_altitudes = altitudes[is_dark]
+            if len(dark_altitudes) > 0:
+                max_altitude_in_darkness = float(np.max(dark_altitudes))
+
         # Determine if visible tonight: must be above min altitude during darkness for at least 1 hour
         is_visible = bool(hours_in_darkness >= 1.0)
 
@@ -295,6 +309,7 @@ class VisibilityService:
             "location_configured": True,
             "current_altitude": round(current_altitude, 1),
             "max_altitude": round(max_altitude, 1),
+            "max_altitude_in_darkness": round(max_altitude_in_darkness, 1),
             "transit_time": transit_time_local.strftime("%H:%M"),
             "hours_above_min_altitude": round(hours_above, 1),
             "hours_in_darkness": round(hours_in_darkness, 1),
@@ -693,3 +708,290 @@ class VisibilityService:
 
         latitude = self._location.lat.deg
         return 90.0 - abs(latitude - dec)
+
+    def calculate_best_viewing_periods(
+        self,
+        ra: float,
+        dec: float,
+        min_altitude: float = DEFAULT_MIN_ALTITUDE,
+        year: Optional[int] = None,
+        object_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Calculate optimal viewing periods for an object throughout the year.
+
+        Uses caching: monthly data is cached per object/location/year since it
+        doesn't change. Upcoming dates are derived from peak season data.
+
+        Args:
+            ra: Right ascension in degrees
+            dec: Declination in degrees
+            min_altitude: Minimum altitude for good imaging (default 30°)
+            year: Year for calculations (defaults to current year)
+            object_id: Optional object ID for caching
+
+        Returns:
+            Dict with monthly_summary, peak_season, best_upcoming_dates
+        """
+        if not self._location_configured or self._location is None:
+            return {
+                "location_configured": False,
+                "monthly_summary": [],
+                "peak_season": None,
+                "best_upcoming_dates": [],
+                "best_month": None,
+                "next_good_date": None,
+            }
+
+        year = year or date.today().year
+        location_id = self._location_id or "unknown"
+
+        # Try to get cached data
+        monthly_summary = None
+        peak_season = None
+
+        if object_id is not None:
+            cache_entry = self.db.query(BestViewingCache).filter(
+                BestViewingCache.object_id == object_id,
+                BestViewingCache.location_id == location_id,
+                BestViewingCache.year == year,
+                BestViewingCache.min_altitude == min_altitude,
+            ).first()
+
+            if cache_entry:
+                monthly_summary = cache_entry.monthly_summary
+                peak_season = cache_entry.peak_season
+
+        # Calculate if not cached
+        if monthly_summary is None:
+            monthly_summary, peak_season = self._calculate_monthly_data(
+                ra, dec, min_altitude, year
+            )
+
+            # Store in cache if we have an object_id
+            if object_id is not None:
+                new_cache = BestViewingCache(
+                    object_id=object_id,
+                    location_id=location_id,
+                    year=year,
+                    min_altitude=min_altitude,
+                    monthly_summary=monthly_summary,
+                    peak_season=peak_season,
+                )
+                self.db.add(new_cache)
+                try:
+                    self.db.commit()
+                except Exception:
+                    self.db.rollback()
+
+        # Derive upcoming dates from peak season (no expensive calculations)
+        best_dates = self._derive_upcoming_dates(peak_season, monthly_summary)
+
+        # Find best month
+        best_month = None
+        if monthly_summary:
+            best_month_data = max(monthly_summary, key=lambda x: x["score"])
+            if best_month_data["score"] > 0:
+                best_month = best_month_data["month_name"]
+
+        # Find next good date
+        next_good_date = None
+        if best_dates:
+            earliest = min(best_dates, key=lambda x: x["date"])
+            parsed_date = datetime.strptime(earliest["date"], "%Y-%m-%d")
+            next_good_date = parsed_date.strftime("%B %d, %Y")
+
+        return {
+            "location_configured": True,
+            "monthly_summary": monthly_summary,
+            "peak_season": peak_season,
+            "best_upcoming_dates": best_dates,
+            "best_month": best_month,
+            "next_good_date": next_good_date,
+        }
+
+    def _calculate_monthly_data(
+        self,
+        ra: float,
+        dec: float,
+        min_altitude: float,
+        year: int,
+    ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Calculate monthly visibility scores and peak season."""
+        month_names = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        ]
+
+        monthly_scores: List[Dict[str, Any]] = []
+
+        for month in range(1, 13):
+            sample_dates = [
+                date(year, month, 1),
+                date(year, month, 15),
+            ]
+
+            total_hours = 0.0
+            total_max_alt = 0.0
+            count = 0
+
+            for sample_date in sample_dates:
+                try:
+                    visibility = self.calculate_object_visibility(
+                        ra, dec, target_date=sample_date, min_altitude=min_altitude
+                    )
+                    hours = visibility.get("hours_in_darkness", 0) or 0
+                    max_alt = visibility.get("max_altitude_in_darkness", 0) or 0
+                    total_hours += hours
+                    total_max_alt += max_alt
+                    count += 1
+                except Exception:
+                    continue
+
+            if count > 0:
+                avg_hours = total_hours / count
+                avg_max_alt = total_max_alt / count
+                score = (avg_hours * 8) + (avg_max_alt * 0.5)
+            else:
+                avg_hours = 0.0
+                avg_max_alt = 0.0
+                score = 0.0
+
+            monthly_scores.append({
+                "month": month,
+                "month_name": month_names[month - 1],
+                "score": round(score, 1),
+                "avg_hours_in_darkness": round(avg_hours, 1),
+                "avg_max_altitude": round(avg_max_alt, 1),
+                "is_peak_month": False,
+            })
+
+        # Find peak months
+        peak_season = None
+        if monthly_scores:
+            scores = [m["score"] for m in monthly_scores]
+            max_score = max(scores) if scores else 0
+            threshold = max_score * 0.8
+
+            peak_months = []
+            for m in monthly_scores:
+                if m["score"] >= threshold and m["score"] > 0:
+                    m["is_peak_month"] = True
+                    peak_months.append(m["month"])
+
+            if peak_months:
+                peak_months_set = set(peak_months)
+                best_start = peak_months[0]
+                best_end = peak_months[0]
+                best_length = 1
+
+                for start in peak_months:
+                    length = 0
+                    current = start
+                    while current in peak_months_set or ((current % 12) + 1) in peak_months_set:
+                        if current in peak_months_set:
+                            length += 1
+                            current = (current % 12) + 1
+                        else:
+                            break
+                        if length > 12:
+                            break
+
+                    if length > best_length:
+                        best_length = length
+                        best_start = start
+                        best_end = ((start + length - 2) % 12) + 1
+
+                if best_length >= 1:
+                    peak_season = {
+                        "start_month": best_start,
+                        "end_month": best_end,
+                        "start_month_name": month_names[best_start - 1],
+                        "end_month_name": month_names[best_end - 1],
+                        "description": f"Best viewed from {month_names[best_start - 1]} to {month_names[best_end - 1]}"
+                        if best_start != best_end else f"Best viewed in {month_names[best_start - 1]}",
+                    }
+
+        return monthly_scores, peak_season
+
+    def _derive_upcoming_dates(
+        self,
+        peak_season: Optional[Dict[str, Any]],
+        monthly_summary: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Derive best upcoming dates from peak season data.
+
+        If currently in peak season: return next 5 days.
+        If outside peak season: return first 5 days of next peak season.
+        """
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        today = date.today()
+        current_month = today.month
+        current_year = today.year
+
+        if not peak_season:
+            return []
+
+        start_month = peak_season["start_month"]
+        end_month = peak_season["end_month"]
+
+        # Check if current month is within peak season (handle wrap-around)
+        in_peak = self._month_in_range(current_month, start_month, end_month)
+
+        # Get the monthly data for score/hours lookup
+        month_data = {m["month"]: m for m in monthly_summary}
+
+        best_dates: List[Dict[str, Any]] = []
+
+        if in_peak:
+            # We're in peak season - return next 5 days
+            for day_offset in range(5):
+                check_date = today + timedelta(days=day_offset)
+                month_info = month_data.get(check_date.month, {})
+                best_dates.append({
+                    "date": check_date.isoformat(),
+                    "day_of_week": day_names[check_date.weekday()],
+                    "score": month_info.get("score", 0),
+                    "hours_in_darkness": month_info.get("avg_hours_in_darkness", 0),
+                    "max_altitude": month_info.get("avg_max_altitude", 0),
+                    "transit_time": "",
+                })
+        else:
+            # Not in peak season - find start of next peak season
+            next_peak_start = self._find_next_peak_start(
+                current_month, current_year, start_month
+            )
+            for day_offset in range(5):
+                check_date = next_peak_start + timedelta(days=day_offset)
+                month_info = month_data.get(check_date.month, {})
+                best_dates.append({
+                    "date": check_date.isoformat(),
+                    "day_of_week": day_names[check_date.weekday()],
+                    "score": month_info.get("score", 0),
+                    "hours_in_darkness": month_info.get("avg_hours_in_darkness", 0),
+                    "max_altitude": month_info.get("avg_max_altitude", 0),
+                    "transit_time": "",
+                })
+
+        return best_dates
+
+    def _month_in_range(self, month: int, start: int, end: int) -> bool:
+        """Check if month is within start-end range, handling year wrap-around."""
+        if start <= end:
+            # Normal range (e.g., March to August)
+            return start <= month <= end
+        else:
+            # Wrap-around range (e.g., November to February)
+            return month >= start or month <= end
+
+    def _find_next_peak_start(
+        self, current_month: int, current_year: int, peak_start_month: int
+    ) -> date:
+        """Find the date when the next peak season starts."""
+        if peak_start_month > current_month:
+            # Peak starts later this year
+            return date(current_year, peak_start_month, 1)
+        else:
+            # Peak starts next year
+            return date(current_year + 1, peak_start_month, 1)

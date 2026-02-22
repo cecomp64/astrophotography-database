@@ -83,7 +83,7 @@ def compute_file_checksum(file_path: Path) -> str:
 
 def get_table_row_counts() -> dict[str, int]:
     """Get row counts for main tables."""
-    tables = ["objects", "object_aliases", "images", "image_objects", "projects", "project_targets", "project_images"]
+    tables = ["objects", "object_aliases", "images", "image_objects", "projects", "project_targets", "project_images", "best_viewing_cache"]
     counts = {}
 
     db = SessionLocal()

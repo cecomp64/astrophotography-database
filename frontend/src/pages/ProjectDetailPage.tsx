@@ -7,6 +7,7 @@ import { isPwaMode } from '../pwa/hooks/usePwaMode'
 import ExposureProgress from '../components/ExposureProgress'
 import ProjectForm from '../components/ProjectForm'
 import AltitudeChart from '../components/AltitudeChart'
+import BestViewingMini from '../components/BestViewingMini'
 
 const COMMON_FILTERS = ['L', 'R', 'G', 'B', 'Ha', 'OIII', 'SII', 'No Filter']
 
@@ -716,6 +717,11 @@ export default function ProjectDetailPage() {
             <div className="-mx-4 sm:mx-0">
               <AltitudeChart objectId={target.object_id} />
             </div>
+          </div>
+
+          {/* Best Viewing Info */}
+          <div className="pt-3 mt-3 border-t border-space-600">
+            <BestViewingMini objectId={target.object_id} />
           </div>
         </div>
       ))}

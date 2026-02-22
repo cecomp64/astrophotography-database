@@ -23,6 +23,10 @@ import {
   WellPlacedProject,
   WellPlacedProjectsResponse,
   VisibilityInfo,
+  BestViewingResponse,
+  MonthlyViewingScore,
+  PeakSeason,
+  UpcomingBestDate,
 } from '../../api/client'
 import {
   calculateBatchVisibility,
@@ -40,6 +44,7 @@ import {
   DbProject,
   DbProjectTarget,
   DbProjectImage,
+  DbBestViewingCache,
 } from '../db/offline-db'
 
 // Helper to convert DB rows to API types
@@ -346,6 +351,165 @@ export const offlineObjectsApi = {
       return mapObject(obj, aliases)
     })
   },
+
+  getBestViewing: async (id: number, minAltitude = 30): Promise<BestViewingResponse> => {
+    const obj = queryOne<DbObject>('SELECT * FROM objects WHERE id = ?', [id])
+    if (!obj) throw new Error('Object not found')
+
+    const location = getStoredLocation()
+    if (!location) {
+      return {
+        location_configured: false,
+        object_name: obj.primary_name,
+        monthly_summary: [],
+        peak_season: null,
+        best_upcoming_dates: [],
+        best_month: null,
+        next_good_date: null,
+      }
+    }
+
+    // Try to get cached data from best_viewing_cache table
+    const currentYear = new Date().getFullYear()
+    const cache = queryOne<DbBestViewingCache>(
+      `SELECT * FROM best_viewing_cache
+       WHERE object_id = ? AND year = ? AND min_altitude = ?
+       ORDER BY created_at DESC LIMIT 1`,
+      [id, currentYear, minAltitude]
+    )
+
+    if (!cache) {
+      // No cache available - return empty response
+      // (Full calculation requires backend; PWA just uses cached data)
+      return {
+        location_configured: true,
+        object_name: obj.primary_name,
+        monthly_summary: [],
+        peak_season: null,
+        best_upcoming_dates: [],
+        best_month: null,
+        next_good_date: null,
+      }
+    }
+
+    // Parse cached JSON data
+    const monthlySummary: MonthlyViewingScore[] = JSON.parse(cache.monthly_summary)
+    const peakSeason: PeakSeason | null = cache.peak_season ? JSON.parse(cache.peak_season) : null
+
+    // Derive upcoming dates from peak season
+    const bestDates = deriveBestUpcomingDates(peakSeason, monthlySummary)
+
+    // Find best month
+    let bestMonth: string | null = null
+    if (monthlySummary.length > 0) {
+      const best = monthlySummary.reduce((a, b) => a.score > b.score ? a : b)
+      if (best.score > 0) {
+        bestMonth = best.month_name
+      }
+    }
+
+    // Find next good date
+    let nextGoodDate: string | null = null
+    if (bestDates.length > 0) {
+      const earliest = bestDates.reduce((a, b) => a.date < b.date ? a : b)
+      const parsed = new Date(earliest.date)
+      nextGoodDate = parsed.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    }
+
+    return {
+      location_configured: true,
+      object_name: obj.primary_name,
+      monthly_summary: monthlySummary,
+      peak_season: peakSeason,
+      best_upcoming_dates: bestDates,
+      best_month: bestMonth,
+      next_good_date: nextGoodDate,
+    }
+  },
+}
+
+/**
+ * Derive best upcoming dates from peak season data.
+ * If currently in peak season: return next 5 days.
+ * If outside peak season: return first 5 days of next peak season.
+ */
+function deriveBestUpcomingDates(
+  peakSeason: PeakSeason | null,
+  monthlySummary: MonthlyViewingScore[]
+): UpcomingBestDate[] {
+  if (!peakSeason) return []
+
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const today = new Date()
+  const currentMonth = today.getMonth() + 1 // 1-indexed
+  const currentYear = today.getFullYear()
+
+  const startMonth = peakSeason.start_month
+  const endMonth = peakSeason.end_month
+
+  // Check if current month is within peak season
+  const inPeak = monthInRange(currentMonth, startMonth, endMonth)
+
+  // Build month data lookup
+  const monthData: Record<number, MonthlyViewingScore> = {}
+  for (const m of monthlySummary) {
+    monthData[m.month] = m
+  }
+
+  const dates: UpcomingBestDate[] = []
+
+  if (inPeak) {
+    // Return next 5 days from today
+    for (let i = 0; i < 5; i++) {
+      const checkDate = new Date(today)
+      checkDate.setDate(today.getDate() + i)
+      const monthInfo = monthData[checkDate.getMonth() + 1]
+      dates.push({
+        date: checkDate.toISOString().split('T')[0],
+        day_of_week: dayNames[checkDate.getDay()],
+        score: monthInfo?.score ?? 0,
+        hours_in_darkness: monthInfo?.avg_hours_in_darkness ?? 0,
+        max_altitude: monthInfo?.avg_max_altitude ?? 0,
+        transit_time: '',
+      })
+    }
+  } else {
+    // Find start of next peak season
+    let nextPeakYear = currentYear
+    if (startMonth <= currentMonth) {
+      nextPeakYear = currentYear + 1
+    }
+    const nextPeakStart = new Date(nextPeakYear, startMonth - 1, 1)
+
+    for (let i = 0; i < 5; i++) {
+      const checkDate = new Date(nextPeakStart)
+      checkDate.setDate(nextPeakStart.getDate() + i)
+      const monthInfo = monthData[checkDate.getMonth() + 1]
+      dates.push({
+        date: checkDate.toISOString().split('T')[0],
+        day_of_week: dayNames[checkDate.getDay()],
+        score: monthInfo?.score ?? 0,
+        hours_in_darkness: monthInfo?.avg_hours_in_darkness ?? 0,
+        max_altitude: monthInfo?.avg_max_altitude ?? 0,
+        transit_time: '',
+      })
+    }
+  }
+
+  return dates
+}
+
+/**
+ * Check if month is within start-end range, handling year wrap-around.
+ */
+function monthInRange(month: number, start: number, end: number): boolean {
+  if (start <= end) {
+    // Normal range (e.g., March to August)
+    return month >= start && month <= end
+  } else {
+    // Wrap-around range (e.g., November to February)
+    return month >= start || month <= end
+  }
 }
 
 // Images API

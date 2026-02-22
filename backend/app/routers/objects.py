@@ -20,6 +20,10 @@ from app.schemas.objects import (
     WellPlacedObjectResponse,
     WellPlacedObjectsListResponse,
     MiniAltitudeResponse,
+    BestViewingResponse,
+    MonthlyViewingScore,
+    UpcomingBestDate,
+    PeakSeason,
 )
 from app.services.name_resolver import NameResolver
 from app.services.visibility_service import VisibilityService
@@ -732,6 +736,71 @@ def get_altitude_chart(
         rise_time=rise_time,
         set_time=set_time,
         twilight=twilight,
+    )
+
+
+@router.get("/{object_id}/best-viewing", response_model=BestViewingResponse)
+def get_best_viewing_periods(
+    object_id: int,
+    min_altitude: float = Query(30.0, ge=0, le=90, description="Minimum altitude in degrees"),
+    db: Session = Depends(get_db),
+):
+    """
+    Calculate the best viewing periods for an astronomical object throughout the year.
+
+    Returns:
+    - monthly_summary: 12 months with score, hours in darkness, max altitude, peak indicator
+    - peak_season: start/end months and description
+    - best_upcoming_dates: Top 5 dates in next 90 days with visibility details
+    """
+    obj = db.query(AstroObject).filter(AstroObject.id == object_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Object not found")
+
+    if obj.ra is None or obj.dec is None:
+        raise HTTPException(status_code=400, detail="Object has no coordinates")
+
+    visibility_service = VisibilityService(db)
+
+    if not visibility_service.location_configured:
+        return BestViewingResponse(
+            location_configured=False,
+            object_name=obj.primary_name,
+            monthly_summary=[],
+            peak_season=None,
+            best_upcoming_dates=[],
+            best_month=None,
+            next_good_date=None,
+        )
+
+    result = visibility_service.calculate_best_viewing_periods(
+        ra=obj.ra,
+        dec=obj.dec,
+        min_altitude=min_altitude,
+        object_id=obj.id,
+    )
+
+    # Convert to response model
+    monthly_summary = [
+        MonthlyViewingScore(**m) for m in result["monthly_summary"]
+    ]
+
+    peak_season = None
+    if result.get("peak_season"):
+        peak_season = PeakSeason(**result["peak_season"])
+
+    best_dates = [
+        UpcomingBestDate(**d) for d in result["best_upcoming_dates"]
+    ]
+
+    return BestViewingResponse(
+        location_configured=True,
+        object_name=obj.primary_name,
+        monthly_summary=monthly_summary,
+        peak_season=peak_season,
+        best_upcoming_dates=best_dates,
+        best_month=result.get("best_month"),
+        next_good_date=result.get("next_good_date"),
     )
 
 

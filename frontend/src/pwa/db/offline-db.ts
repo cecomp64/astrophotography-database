@@ -283,3 +283,14 @@ export interface DbProjectImage {
   image_id: number
   added_manually: number // SQLite boolean
 }
+
+export interface DbBestViewingCache {
+  id: number
+  object_id: number
+  location_id: string
+  year: number
+  min_altitude: number
+  monthly_summary: string // JSON string
+  peak_season: string | null // JSON string
+  created_at: string
+}
