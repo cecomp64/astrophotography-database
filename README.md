@@ -1,5 +1,12 @@
 # Astrophotography Database
 
+> **Deprecated.** This app is being replaced by the observatory Hub in
+> [`cecomp64/altair-observatory-system`](https://github.com/cecomp64/altair-observatory-system)
+> (`hub/`), which now covers the catalogue, visibility charts, projects and FITS indexing
+> (see its `docs/SYSTEM_ARCHITECTURE.md` §8.4). Import your data with
+> `bin/rails "import:astrodb[/path/to/database.db,you@example.com,telescope=SLUG]"`.
+> This repository will get one final release and then be archived.
+
 A desktop application for indexing and exploring astrophotography FITS files. Extracts metadata from FITS headers and filenames, resolves object names using the Telescopius API, and provides a searchable database with a modern interface.
 
 ## Features
